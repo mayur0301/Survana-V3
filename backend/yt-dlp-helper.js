@@ -90,28 +90,38 @@ function searchSongs(query) {
  * Calls yt-dlp to extract the direct media stream URL
  */
 function getStreamUrl(videoId) {
-  return new Promise((resolve, reject) => {
-    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const args = addCookiesArg(['-m', 'yt_dlp', '-g', '-f', 'bestaudio/best', youtubeUrl]);
-    
-    const child = spawn('python', args);
-    let stdoutData = '';
-    let stderrData = '';
-
-    child.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-    child.stderr.on('data', (data) => {
-      stderrData += data.toString();
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`Error resolving stream URL for ${videoId}:`, stderrData);
-        return reject(new Error(`yt-dlp failed: ${stderrData}`));
+  const runYtDlp = (useCookies) => {
+    return new Promise((resolve, reject) => {
+      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      let args = ['-m', 'yt_dlp', '-g', '-f', 'bestaudio/best', youtubeUrl];
+      if (useCookies) {
+        args = addCookiesArg(args);
       }
-      resolve(stdoutData.trim());
+      
+      const child = spawn('python', args);
+      let stdoutData = '';
+      let stderrData = '';
+
+      child.stdout.on('data', (data) => {
+        stdoutData += data.toString();
+      });
+      child.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          return reject(new Error(stderrData || `Exit code ${code}`));
+        }
+        resolve(stdoutData.trim());
+      });
     });
+  };
+
+  // Try with cookies first, fallback to without cookies if it fails
+  return runYtDlp(true).catch((err) => {
+    console.warn(`[yt-dlp] Failed resolving stream with cookies, retrying without:`, err.message);
+    return runYtDlp(false);
   });
 }
 
@@ -129,21 +139,49 @@ function downloadToCache(videoId) {
   console.log(`[Background Cache] Starting download for ${videoId}...`);
 
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const args = addCookiesArg(['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl]);
-  const ytdlp = spawn('python', args);
+  
+  const runDownload = (useCookies) => {
+    return new Promise((resolve, reject) => {
+      let args = ['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl];
+      if (useCookies) {
+        args = addCookiesArg(args);
+      }
+      
+      const ytdlp = spawn('python', args);
+      let stderrData = '';
+      
+      ytdlp.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+      
+      ytdlp.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(stderrData || `Exit code ${code}`));
+        }
+      });
+    });
+  };
 
-  ytdlp.on('close', (code) => {
-    activeDownloads.delete(videoId);
-    if (code === 0) {
+  runDownload(true)
+    .catch((err) => {
+      console.warn(`[Background Cache] Failed with cookies, retrying without cookies:`, err.message);
+      return runDownload(false);
+    })
+    .then(() => {
       console.log(`[Background Cache] Finished caching ${videoId} successfully.`);
-    } else {
-      console.error(`[Background Cache] Failed caching ${videoId} with code ${code}.`);
+    })
+    .catch((err) => {
+      console.error(`[Background Cache] Failed caching ${videoId} completely:`, err.message);
       // Cleanup incomplete file if any
       if (fs.existsSync(cachePath)) {
         fs.unlink(cachePath, () => {});
       }
-    }
-  });
+    })
+    .finally(() => {
+      activeDownloads.delete(videoId);
+    });
 }
 
 /**
@@ -243,26 +281,45 @@ function downloadAudio(videoId, res) {
   console.log(`[Download] Downloading ${videoId} to serve...`);
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   
-  const args = addCookiesArg(['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl]);
-  const ytdlp = spawn('python', args);
+  const runDownload = (useCookies) => {
+    return new Promise((resolve, reject) => {
+      let args = ['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl];
+      if (useCookies) {
+        args = addCookiesArg(args);
+      }
+      
+      const ytdlp = spawn('python', args);
+      let stderrData = '';
+      
+      ytdlp.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+      
+      ytdlp.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(stderrData || `Exit code ${code}`));
+        }
+      });
+    });
+  };
 
-  let stderrData = '';
-  ytdlp.stderr.on('data', (data) => {
-    stderrData += data.toString();
-  });
-
-  ytdlp.on('close', (code) => {
-    if (code !== 0) {
-      console.error(`[Download Error] Failed to download: ${stderrData}`);
+  runDownload(true)
+    .catch((err) => {
+      console.warn(`[Download] Failed with cookies, retrying without:`, err.message);
+      return runDownload(false);
+    })
+    .then(() => {
+      console.log(`[Download Success] Saved to ${cachePath}`);
+      triggerDownload(cachePath, `${videoId}.webm`);
+    })
+    .catch((err) => {
+      console.error(`[Download Error] Failed completely:`, err.message);
       if (!res.headersSent) {
         res.status(500).send('Failed to download audio track');
       }
-      return;
-    }
-    
-    console.log(`[Download Success] Saved to ${cachePath}`);
-    triggerDownload(cachePath, `${videoId}.webm`);
-  });
+    });
 }
 
 module.exports = {
