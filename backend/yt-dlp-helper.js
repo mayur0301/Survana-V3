@@ -11,6 +11,15 @@ if (!fs.existsSync(CACHE_DIR)) {
 // Track active background downloads to prevent duplicate processes
 const activeDownloads = new Set();
 
+const COOKIES_BROWSER = process.env.YT_DLP_COOKIES_BROWSER || 'chrome';
+
+function addCookiesArg(args) {
+  if (process.env.NODE_ENV !== 'production') {
+    args.push('--cookies-from-browser', COOKIES_BROWSER);
+  }
+  return args;
+}
+
 /**
  * Run yt-dlp search and return formatted song entries
  */
@@ -83,12 +92,25 @@ function searchSongs(query) {
 function getStreamUrl(videoId) {
   return new Promise((resolve, reject) => {
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    exec(`python -m yt_dlp -g -f "bestaudio/best" "${youtubeUrl}"`, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error resolving stream URL for ${videoId}:`, error.message);
-        return reject(error);
+    const args = addCookiesArg(['-m', 'yt_dlp', '-g', '-f', 'bestaudio/best', youtubeUrl]);
+    
+    const child = spawn('python', args);
+    let stdoutData = '';
+    let stderrData = '';
+
+    child.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+    });
+    child.stderr.on('data', (data) => {
+      stderrData += data.toString();
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Error resolving stream URL for ${videoId}:`, stderrData);
+        return reject(new Error(`yt-dlp failed: ${stderrData}`));
       }
-      resolve(stdout.trim());
+      resolve(stdoutData.trim());
     });
   });
 }
@@ -107,12 +129,8 @@ function downloadToCache(videoId) {
   console.log(`[Background Cache] Starting download for ${videoId}...`);
 
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const ytdlp = spawn('python', [
-    '-m', 'yt_dlp',
-    '-f', 'bestaudio',
-    '-o', cachePath,
-    youtubeUrl
-  ]);
+  const args = addCookiesArg(['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl]);
+  const ytdlp = spawn('python', args);
 
   ytdlp.on('close', (code) => {
     activeDownloads.delete(videoId);
@@ -225,10 +243,21 @@ function downloadAudio(videoId, res) {
   console.log(`[Download] Downloading ${videoId} to serve...`);
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   
-  exec(`python -m yt_dlp -f bestaudio -o "${cachePath}" "${youtubeUrl}"`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`[Download Error] Failed to download: ${error.message}`);
-      return res.status(500).send('Failed to download audio track');
+  const args = addCookiesArg(['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl]);
+  const ytdlp = spawn('python', args);
+
+  let stderrData = '';
+  ytdlp.stderr.on('data', (data) => {
+    stderrData += data.toString();
+  });
+
+  ytdlp.on('close', (code) => {
+    if (code !== 0) {
+      console.error(`[Download Error] Failed to download: ${stderrData}`);
+      if (!res.headersSent) {
+        res.status(500).send('Failed to download audio track');
+      }
+      return;
     }
     
     console.log(`[Download Success] Saved to ${cachePath}`);
