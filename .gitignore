@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.log
+
+# Exclude backend database states and transient local stream cache
+backend/cache/
+backend/playlists.json
+backend/liked.json
+backend/history.json
