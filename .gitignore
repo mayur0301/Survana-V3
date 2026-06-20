@@ -9,3 +9,6 @@ backend/cache/
 backend/playlists.json
 backend/liked.json
 backend/history.json
+backend/src/database/playlists.json
+backend/src/database/liked.json
+backend/src/database/history.json

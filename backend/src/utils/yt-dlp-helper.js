@@ -1,12 +1,10 @@
-const { spawn, exec } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
+const config = require('../config');
 
-// Load environment variables
-require('dotenv').config();
-
-const CACHE_DIR = path.join(__dirname, 'cache');
+const CACHE_DIR = config.CACHE_DIR;
 if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
@@ -14,27 +12,28 @@ if (!fs.existsSync(CACHE_DIR)) {
 // Track active background downloads to prevent duplicate processes
 const activeDownloads = new Set();
 
-const COOKIES_BROWSER = process.env.YT_DLP_COOKIES_BROWSER || 'chrome';
+const COOKIES_BROWSER = config.COOKIES_BROWSER;
 
 /**
  * Builds the array of arguments for yt-dlp.
  * Always configures the JavaScript runtime and optionally configures cookies.
  */
 function prepareYtDlpArgs(customArgs, useCookies = true) {
-  let args = ['-m', 'yt_dlp', ...customArgs];
+  let args = ['-m', 'yt_dlp', '--no-update', ...customArgs];
 
   // 1. Explicitly enable Deno and Node.js as the JavaScript runtimes for challenge/signature solving.
   // We prioritize Deno (installed in Docker) and fall back to the running Node binary.
-  args.push('--js-runtimes', `deno,node:${process.execPath}`);
+  args.push('--js-runtimes', 'deno');
+  args.push('--js-runtimes', `node:${process.execPath}`);
 
   // 2. Add cookies if requested
   if (useCookies) {
     // A. Check if cookies text is provided via Environment Variable (safest for Render)
-    if (process.env.YT_DLP_COOKIES_TEXT) {
+    if (config.YT_DLP_COOKIES_TEXT) {
       const tempCookiesPath = path.join(__dirname, 'temp-cookies.txt');
       try {
-        if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== process.env.YT_DLP_COOKIES_TEXT) {
-          fs.writeFileSync(tempCookiesPath, process.env.YT_DLP_COOKIES_TEXT, 'utf8');
+        if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== config.YT_DLP_COOKIES_TEXT) {
+          fs.writeFileSync(tempCookiesPath, config.YT_DLP_COOKIES_TEXT, 'utf8');
         }
         args.push('--cookies', tempCookiesPath);
         return args;
@@ -44,16 +43,16 @@ function prepareYtDlpArgs(customArgs, useCookies = true) {
     }
 
     // B. Check if a local cookies.txt file exists in backend/ or root directory
-    const localCookiesPath = path.join(__dirname, 'cookies.txt');
-    const rootCookiesPath = path.join(__dirname, '..', 'cookies.txt');
+    const localCookiesPath = path.join(__dirname, '..', '..', 'cookies.txt');
+    const rootCookiesPath = path.join(__dirname, '..', '..', '..', 'cookies.txt');
 
     if (fs.existsSync(localCookiesPath)) {
       args.push('--cookies', localCookiesPath);
     } else if (fs.existsSync(rootCookiesPath)) {
       args.push('--cookies', rootCookiesPath);
     } else {
-      // C. Fallback to browser cookies only in non-production environments
-      if (process.env.NODE_ENV !== 'production') {
+      // C. Fallback to browser cookies only in non-production environments if explicitly specified
+      if (config.NODE_ENV !== 'production' && COOKIES_BROWSER) {
         args.push('--cookies-from-browser', COOKIES_BROWSER);
       }
     }
@@ -75,7 +74,7 @@ function searchSongs(query) {
       '--flat-playlist',
       '--dump-json',
       '--skip-download'
-    ], true);
+    ], false);
 
     const child = spawn('python', args);
 
