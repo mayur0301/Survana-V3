@@ -23,9 +23,9 @@ const COOKIES_BROWSER = process.env.YT_DLP_COOKIES_BROWSER || 'chrome';
 function prepareYtDlpArgs(customArgs, useCookies = true) {
   let args = ['-m', 'yt_dlp', ...customArgs];
 
-  // 1. Explicitly enable Node.js as the JavaScript runtime for challenge/signature solving.
-  // We use process.execPath to point directly to the Node binary running this server.
-  args.push('--js-runtimes', `node:${process.execPath}`);
+  // 1. Explicitly enable Deno and Node.js as the JavaScript runtimes for challenge/signature solving.
+  // We prioritize Deno (installed in Docker) and fall back to the running Node binary.
+  args.push('--js-runtimes', `deno,node:${process.execPath}`);
 
   // 2. Add cookies if requested
   if (useCookies) {

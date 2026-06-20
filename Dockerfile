@@ -11,7 +11,7 @@ RUN npm run build --prefix frontend
 FROM node:20-bookworm-slim
 WORKDIR /app
 
-# Install Python 3, pip, ffmpeg and clean up cache
+# Install Python 3, pip, ffmpeg, curl and clean up cache
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
@@ -20,10 +20,15 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Deno (officially recommended JS runtime for yt-dlp challenge solving)
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
+
 # Setup Python virtual environment and install yt-dlp globally in env
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir yt-dlp
+RUN pip install --no-cache-dir -U yt-dlp
 
 # Copy package files and install backend dependencies
 COPY package*.json ./
