@@ -16,36 +16,49 @@ const activeDownloads = new Set();
 
 const COOKIES_BROWSER = process.env.YT_DLP_COOKIES_BROWSER || 'chrome';
 
-function addCookiesArg(args) {
-  // 1. Check if cookies text is provided via Environment Variable (most secure for Render/Docker envs)
-  if (process.env.YT_DLP_COOKIES_TEXT) {
-    const tempCookiesPath = path.join(__dirname, 'temp-cookies.txt');
-    try {
-      // Only write if file doesn't exist or content is different to prevent excess disk IO
-      if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== process.env.YT_DLP_COOKIES_TEXT) {
-        fs.writeFileSync(tempCookiesPath, process.env.YT_DLP_COOKIES_TEXT, 'utf8');
+/**
+ * Builds the array of arguments for yt-dlp.
+ * Always configures the JavaScript runtime and optionally configures cookies.
+ */
+function prepareYtDlpArgs(customArgs, useCookies = true) {
+  let args = ['-m', 'yt_dlp', ...customArgs];
+
+  // 1. Explicitly enable Node.js as the JavaScript runtime for challenge/signature solving.
+  // We use process.execPath to point directly to the Node binary running this server.
+  args.push('--js-runtimes', `node:${process.execPath}`);
+
+  // 2. Add cookies if requested
+  if (useCookies) {
+    // A. Check if cookies text is provided via Environment Variable (safest for Render)
+    if (process.env.YT_DLP_COOKIES_TEXT) {
+      const tempCookiesPath = path.join(__dirname, 'temp-cookies.txt');
+      try {
+        if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== process.env.YT_DLP_COOKIES_TEXT) {
+          fs.writeFileSync(tempCookiesPath, process.env.YT_DLP_COOKIES_TEXT, 'utf8');
+        }
+        args.push('--cookies', tempCookiesPath);
+        return args;
+      } catch (e) {
+        console.error('Failed to write temp-cookies.txt from YT_DLP_COOKIES_TEXT env variable:', e.message);
       }
-      args.push('--cookies', tempCookiesPath);
-      return args;
-    } catch (e) {
-      console.error('Failed to write temp-cookies.txt from YT_DLP_COOKIES_TEXT env variable:', e.message);
+    }
+
+    // B. Check if a local cookies.txt file exists in backend/ or root directory
+    const localCookiesPath = path.join(__dirname, 'cookies.txt');
+    const rootCookiesPath = path.join(__dirname, '..', 'cookies.txt');
+
+    if (fs.existsSync(localCookiesPath)) {
+      args.push('--cookies', localCookiesPath);
+    } else if (fs.existsSync(rootCookiesPath)) {
+      args.push('--cookies', rootCookiesPath);
+    } else {
+      // C. Fallback to browser cookies only in non-production environments
+      if (process.env.NODE_ENV !== 'production') {
+        args.push('--cookies-from-browser', COOKIES_BROWSER);
+      }
     }
   }
 
-  // 2. Check if a local cookies.txt file exists in backend/ or root directory
-  const localCookiesPath = path.join(__dirname, 'cookies.txt');
-  const rootCookiesPath = path.join(__dirname, '..', 'cookies.txt');
-
-  if (fs.existsSync(localCookiesPath)) {
-    args.push('--cookies', localCookiesPath);
-  } else if (fs.existsSync(rootCookiesPath)) {
-    args.push('--cookies', rootCookiesPath);
-  } else {
-    // 3. Fallback to browser cookies only in non-production environments
-    if (process.env.NODE_ENV !== 'production') {
-      args.push('--cookies-from-browser', COOKIES_BROWSER);
-    }
-  }
   return args;
 }
 
@@ -57,14 +70,12 @@ function searchSongs(query) {
     const limit = 15;
     const searchQuery = `ytsearch${limit}:${query}`;
     
-    let args = [
-      '-m', 'yt_dlp',
+    const args = prepareYtDlpArgs([
       searchQuery,
       '--flat-playlist',
       '--dump-json',
       '--skip-download'
-    ];
-    args = addCookiesArg(args);
+    ], true);
 
     const child = spawn('python', args);
 
@@ -125,10 +136,7 @@ function getStreamUrl(videoId) {
   const runYtDlp = (useCookies) => {
     return new Promise((resolve, reject) => {
       const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      let args = ['-m', 'yt_dlp', '-g', '-f', 'bestaudio/best', youtubeUrl];
-      if (useCookies) {
-        args = addCookiesArg(args);
-      }
+      const args = prepareYtDlpArgs(['-g', '-f', 'bestaudio/best', youtubeUrl], useCookies);
       
       const child = spawn('python', args);
       let stdoutData = '';
@@ -174,10 +182,7 @@ function downloadToCache(videoId) {
   
   const runDownload = (useCookies) => {
     return new Promise((resolve, reject) => {
-      let args = ['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl];
-      if (useCookies) {
-        args = addCookiesArg(args);
-      }
+      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', cachePath, youtubeUrl], useCookies);
       
       const ytdlp = spawn('python', args);
       let stderrData = '';
@@ -315,10 +320,7 @@ function downloadAudio(videoId, res) {
   
   const runDownload = (useCookies) => {
     return new Promise((resolve, reject) => {
-      let args = ['-m', 'yt_dlp', '-f', 'bestaudio', '-o', cachePath, youtubeUrl];
-      if (useCookies) {
-        args = addCookiesArg(args);
-      }
+      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', cachePath, youtubeUrl], useCookies);
       
       const ytdlp = spawn('python', args);
       let stderrData = '';
