@@ -21,3 +21,7 @@ export default function MainRoutes() {
     </Routes>
   );
 }
+// Good for local and best new folder strucutre in backend and frontend for deployment
+// but for deployment we need to use nginx and for that we need to change the backend routing
+// for deployment we need to use nginx and for that we need to change the backend routing
+// this is also good
