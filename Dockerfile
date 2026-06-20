@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     ffmpeg \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno (officially recommended JS runtime for yt-dlp challenge solving)
