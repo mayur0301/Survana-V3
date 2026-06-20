@@ -79,7 +79,11 @@ export default function AudioPlayer() {
     setIsShuffle,
     handleSkipNext,
     handleSkipPrevious,
-    fetchHistory
+    fetchHistory,
+    isLyricsOpen,
+    setIsLyricsOpen,
+    isVisualizerOpen,
+    setIsVisualizerOpen
   } = useMusicPlayer();
 
   const audioRef = useRef(null);
@@ -87,10 +91,6 @@ export default function AudioPlayer() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
-  
-  // Overlay/Drawer states
-  const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
-  const [isLyricsOpen, setIsLyricsOpen] = useState(false);
   
   // Lyrics data states
   const [lyrics, setLyrics] = useState({ plain: null, synced: null });

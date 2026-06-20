@@ -23,6 +23,9 @@ export function MusicPlayerProvider({ children }) {
   const [isShuffle, setIsShuffle] = useState(false);
   const [queue, setQueue] = useState([]);
   const [activeQueueIndex, setActiveQueueIndex] = useState(-1);
+  const [isLyricsOpen, setIsLyricsOpen] = useState(false);
+  const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 900);
 
   // Fetch initial data
   useEffect(() => {
@@ -268,6 +271,12 @@ export function MusicPlayerProvider({ children }) {
       setIsShuffle,
       queue,
       activeQueueIndex,
+      isLyricsOpen,
+      setIsLyricsOpen,
+      isVisualizerOpen,
+      setIsVisualizerOpen,
+      isSidebarOpen,
+      setIsSidebarOpen,
       handleLikeSong,
       handleCreatePlaylist,
       handleDeletePlaylist,

@@ -76,11 +76,25 @@ body {
 /* App Layout Grid */
 .app-container {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  grid-template-rows: 1fr 96px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 96px;
   height: 100vh;
   width: 100%;
   overflow: hidden;
+  position: relative;
+  transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-container.lyrics-open {
+  grid-template-columns: 240px minmax(0, 1fr) 400px;
+}
+
+.app-container.sidebar-collapsed {
+  grid-template-columns: 80px minmax(0, 1fr);
+}
+
+.app-container.sidebar-collapsed.lyrics-open {
+  grid-template-columns: 80px minmax(0, 1fr) 400px;
 }
 
 /* Sidebar Styling */
@@ -93,6 +107,70 @@ body {
   gap: 32px;
   overflow-y: auto;
   z-index: 10;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  padding: 24px 12px;
+  align-items: center;
+}
+
+.sidebar.collapsed .logo-container {
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.sidebar.collapsed .nav-item span {
+  display: none;
+}
+
+.sidebar.collapsed .playlist-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.sidebar.collapsed .section-title {
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar.collapsed .section-title span {
+  display: none;
+}
+
+.sidebar.collapsed .no-playlists-text {
+  display: none;
+}
+
+.sidebar.collapsed .playlist-list {
+  align-items: center;
+  width: 100%;
+}
+
+.sidebar.collapsed .playlist-item {
+  justify-content: center;
+  padding: 12px 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+}
+
+.sidebar.collapsed .playlist-item span {
+  display: none;
+}
+
+.sidebar.collapsed .playlist-item button {
+  display: none;
 }
 
 .logo-container {
@@ -955,16 +1033,54 @@ body {
   50% { transform: translateY(-8px); }
   100% { transform: translateY(0px); }
 }
+.sidebar-backdrop {
+  display: none;
+}
 
 /* Responsive Styles */
 @media (max-width: 900px) {
   .app-container {
-    grid-template-columns: 1fr;
-    grid-template-rows: 100vh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100vh;
+    height: 100dvh;
+  }
+  
+  .app-container.lyrics-open {
+    grid-template-columns: minmax(0, 1fr);
   }
   
   .sidebar {
-    display: none; /* In a production app, we would make a responsive drawer */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px;
+    height: 100vh;
+    height: 100dvh;
+    transform: translateX(-100%);
+    z-index: 200;
+    box-shadow: 20px 0 40px rgba(0, 0, 0, 0.4);
+    background-color: var(--bg-secondary);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex !important;
+  }
+
+  .app-container:not(.sidebar-collapsed) .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 190;
+    transition: opacity 0.3s ease;
   }
   
   .player-bar {
@@ -977,5 +1093,64 @@ body {
   .player-actions {
     grid-column: 1 / -1;
     justify-content: center;
+  }
+
+  .lyrics-overlay {
+    width: 100% !important;
+    height: calc(100vh - 120px) !important;
+    z-index: 150 !important;
+  }
+
+  .hero-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .hero-content {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .player-bar {
+    grid-template-columns: 1fr !important;
+    text-align: center;
+    gap: 12px;
+  }
+  
+  .player-song-info {
+    justify-content: center;
+  }
+  
+  .progress-container {
+    width: 100%;
+  }
+
+  .header {
+    padding: 16px 20px;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .search-bar {
+    max-width: 100%;
+  }
+
+  .view-container {
+    padding: 0 20px 20px 20px;
+  }
+
+  .hero-banner {
+    padding: 24px;
+  }
+
+  .hero-content {
+    max-width: 100%;
+  }
+
+  .hero-headline {
+    font-size: 28px;
   }
 }

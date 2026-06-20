@@ -3,13 +3,15 @@ import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { Home, Search, Heart, History, FolderHeart, Plus, Trash2 } from 'lucide-react';
 import { useMusicPlayer } from '../../context/MusicPlayerContext';
 import bigLogo from '../../assets/Logo/Big Logo.png';
+import smallLogo from '../../assets/Logo/Small Logo.png';
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const {
     playlists,
     handleCreatePlaylist,
-    handleDeletePlaylist
+    handleDeletePlaylist,
+    isSidebarOpen
   } = useMusicPlayer();
 
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -34,9 +36,18 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
-      <Link to="/" className="logo-container" style={{ justifyContent: 'flex-start', padding: '0 4px', display: 'block', textDecoration: 'none' }}>
-        <img src={bigLogo} alt="Survana V3" style={{ width: '100%', maxHeight: '45px', objectFit: 'contain' }} />
+    <aside className={`sidebar ${!isSidebarOpen ? 'collapsed' : ''}`}>
+      <Link to="/" className="logo-container" style={{ justifyContent: 'center', padding: '0 4px', display: 'flex', textDecoration: 'none' }}>
+        <img 
+          src={isSidebarOpen ? bigLogo : smallLogo} 
+          alt="Survana V3" 
+          style={{ 
+            width: '100%', 
+            maxHeight: '45px', 
+            objectFit: 'contain',
+            transition: 'all 0.3s'
+          }} 
+        />
       </Link>
 
       <nav>
@@ -46,9 +57,10 @@ export default function Sidebar() {
               to="/"
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
+              title="Home"
             >
-              <Home size={20} />
-              Home
+              <Home size={20} style={{ flexShrink: 0 }} />
+              <span>Home</span>
             </NavLink>
           </li>
           <li>
@@ -56,9 +68,10 @@ export default function Sidebar() {
               to="/search"
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
+              title="Search"
             >
-              <Search size={20} />
-              Search
+              <Search size={20} style={{ flexShrink: 0 }} />
+              <span>Search</span>
             </NavLink>
           </li>
           <li>
@@ -66,9 +79,10 @@ export default function Sidebar() {
               to="/liked"
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
+              title="Liked Songs"
             >
-              <Heart size={20} />
-              Liked Songs
+              <Heart size={20} style={{ flexShrink: 0 }} />
+              <span>Liked Songs</span>
             </NavLink>
           </li>
           <li>
@@ -76,9 +90,10 @@ export default function Sidebar() {
               to="/history"
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
+              title="History"
             >
-              <History size={20} />
-              History
+              <History size={20} style={{ flexShrink: 0 }} />
+              <span>History</span>
             </NavLink>
           </li>
         </ul>
@@ -96,7 +111,7 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {showAddForm && (
+        {showAddForm && isSidebarOpen && (
           <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
             <input
               type="text"
@@ -110,7 +125,8 @@ export default function Sidebar() {
                 padding: '6px 12px',
                 borderRadius: '8px',
                 fontSize: '13px',
-                color: 'white'
+                color: 'white',
+                width: '100%'
               }}
               autoFocus
             />
@@ -134,8 +150,8 @@ export default function Sidebar() {
 
         <div className="playlist-list">
           {playlists.length === 0 ? (
-            <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              No playlists created
+            <div className="no-playlists-text" style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              No playlists
             </div>
           ) : (
             playlists.map((pl) => (
@@ -144,20 +160,23 @@ export default function Sidebar() {
                 to={`/playlist/${pl.id}`}
                 className={({ isActive }) => `playlist-item ${isActive ? 'active' : ''}`}
                 style={{ textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                title={pl.name}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', width: '100%' }}>
                   <FolderHeart size={16} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span className="playlist-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {pl.name}
                   </span>
                 </div>
-                <button
-                  onClick={(e) => handleDelete(e, pl.id, pl.name)}
-                  className="delete-playlist-btn"
-                  title="Delete playlist"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {isSidebarOpen && (
+                  <button
+                    onClick={(e) => handleDelete(e, pl.id, pl.name)}
+                    className="delete-playlist-btn"
+                    title="Delete playlist"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </NavLink>
             ))
           )}
