@@ -1,79 +1,85 @@
 import React, { useState } from 'react';
-import { Music, Home, Search, Heart, History, FolderHeart, Plus, Trash2 } from 'lucide-react';
-import bigLogo from '../assets/Logo/Big Logo.png';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { Home, Search, Heart, History, FolderHeart, Plus, Trash2 } from 'lucide-react';
+import { useMusicPlayer } from '../../context/MusicPlayerContext';
+import bigLogo from '../../assets/Logo/Big Logo.png';
 
-export default function Sidebar({
-  currentView,
-  setCurrentView,
-  playlists,
-  onCreatePlaylist,
-  onDeletePlaylist,
-  setSelectedPlaylistId
-}) {
+export default function Sidebar() {
+  const navigate = useNavigate();
+  const {
+    playlists,
+    handleCreatePlaylist,
+    handleDeletePlaylist
+  } = useMusicPlayer();
+
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (newPlaylistName.trim()) {
-      onCreatePlaylist(newPlaylistName.trim());
+      handleCreatePlaylist(newPlaylistName.trim());
       setNewPlaylistName('');
       setShowAddForm(false);
     }
   };
 
-  const handlePlaylistClick = (plId) => {
-    setSelectedPlaylistId(plId);
-    setCurrentView('playlist-detail');
+  const handleDelete = async (e, plId, plName) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm(`Delete playlist "${plName}"?`)) {
+      await handleDeletePlaylist(plId);
+      navigate('/');
+    }
   };
 
   return (
     <aside className="sidebar">
-      <div className="logo-container" style={{ justifyContent: 'flex-start', padding: '0 4px' }}>
+      <Link to="/" className="logo-container" style={{ justifyContent: 'flex-start', padding: '0 4px', display: 'block', textDecoration: 'none' }}>
         <img src={bigLogo} alt="Survana V3" style={{ width: '100%', maxHeight: '45px', objectFit: 'contain' }} />
-      </div>
+      </Link>
 
       <nav>
         <ul className="nav-menu">
           <li>
-            <button
-              onClick={() => setCurrentView('home')}
-              className={`nav-item ${currentView === 'home' ? 'active' : ''}`}
-              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left' }}
+            <NavLink
+              to="/"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
             >
               <Home size={20} />
               Home
-            </button>
+            </NavLink>
           </li>
           <li>
-            <button
-              onClick={() => setCurrentView('search')}
-              className={`nav-item ${currentView === 'search' ? 'active' : ''}`}
-              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left' }}
+            <NavLink
+              to="/search"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
             >
               <Search size={20} />
               Search
-            </button>
+            </NavLink>
           </li>
           <li>
-            <button
-              onClick={() => setCurrentView('liked')}
-              className={`nav-item ${currentView === 'liked' ? 'active' : ''}`}
-              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left' }}
+            <NavLink
+              to="/liked"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
             >
               <Heart size={20} />
               Liked Songs
-            </button>
+            </NavLink>
           </li>
           <li>
-            <button
-              onClick={() => setCurrentView('history')}
-              className={`nav-item ${currentView === 'history' ? 'active' : ''}`}
-              style={{ background: 'none', border: 'none', width: '100%', textAlign: 'left' }}
+            <NavLink
+              to="/history"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              style={{ display: 'flex', width: '100%', textAlign: 'left', textDecoration: 'none' }}
             >
               <History size={20} />
               History
-            </button>
+            </NavLink>
           </li>
         </ul>
       </nav>
@@ -133,10 +139,11 @@ export default function Sidebar({
             </div>
           ) : (
             playlists.map((pl) => (
-              <div 
+              <NavLink 
                 key={pl.id} 
-                className={`playlist-item ${currentView === 'playlist-detail' && pl.id === pl.selectedId ? 'active' : ''}`}
-                onClick={() => handlePlaylistClick(pl.id)}
+                to={`/playlist/${pl.id}`}
+                className={({ isActive }) => `playlist-item ${isActive ? 'active' : ''}`}
+                style={{ textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                   <FolderHeart size={16} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
@@ -145,18 +152,13 @@ export default function Sidebar({
                   </span>
                 </div>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm(`Delete playlist "${pl.name}"?`)) {
-                      onDeletePlaylist(pl.id);
-                    }
-                  }}
+                  onClick={(e) => handleDelete(e, pl.id, pl.name)}
                   className="delete-playlist-btn"
                   title="Delete playlist"
                 >
                   <Trash2 size={14} />
                 </button>
-              </div>
+              </NavLink>
             ))
           )}
         </div>

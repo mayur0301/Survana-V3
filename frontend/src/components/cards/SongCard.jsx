@@ -1,30 +1,27 @@
 import React, { useState } from 'react';
-import { Play, Pause, Heart, Plus, FolderPlus } from 'lucide-react';
+import { Play, Pause, Heart, Plus } from 'lucide-react';
+import { useMusicPlayer } from '../../context/MusicPlayerContext';
 
-export default function SongCard({
-  song,
-  isPlaying,
-  currentSong,
-  onPlay,
-  onLike,
-  isLiked,
-  playlists,
-  onAddToPlaylist
-}) {
+export default function SongCard({ song, playlistContext = null }) {
+  const {
+    currentSong,
+    isPlaying,
+    handlePlaySong,
+    handleLikeSong,
+    isSongLiked,
+    playlists,
+    handleAddToPlaylist,
+    formatDuration
+  } = useMusicPlayer();
+
   const [showPlaylists, setShowPlaylists] = useState(false);
 
-  const formatDuration = (sec) => {
-    if (!sec) return '0:00';
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
   const isCurrent = currentSong && currentSong.id === song.id;
+  const isLiked = isSongLiked(song.id);
 
   return (
     <div className="song-card">
-      <div className="song-thumbnail-container" onClick={() => onPlay(song)}>
+      <div className="song-thumbnail-container" onClick={() => handlePlaySong(song, playlistContext)}>
         <img src={song.thumbnail} alt={song.title} className="song-thumbnail" />
         <div className="play-hover-overlay">
           <div className="play-btn-circle">
@@ -50,7 +47,7 @@ export default function SongCard({
           <button 
             onClick={(e) => {
               e.stopPropagation();
-              onLike(song);
+              handleLikeSong(song);
             }} 
             className={`card-action-btn ${isLiked ? 'liked' : ''}`}
             title={isLiked ? "Unlike" : "Like"}
@@ -101,7 +98,7 @@ export default function SongCard({
                       key={pl.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onAddToPlaylist(pl.id, song);
+                        handleAddToPlaylist(pl.id, song);
                         setShowPlaylists(false);
                       }}
                       style={{

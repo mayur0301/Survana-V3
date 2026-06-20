@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, Sparkles, Languages, Download, ChevronUp, ChevronDown, FolderOpen } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, Sparkles, Languages, Download, ChevronDown, FolderOpen } from 'lucide-react';
+import { useMusicPlayer } from '../../context/MusicPlayerContext';
 import Visualizer from './Visualizer';
 
 // IndexedDB database parameters for storing the directory handle
@@ -67,20 +68,20 @@ async function verifyPermission(fileHandle, readWrite) {
   return false;
 }
 
+export default function AudioPlayer() {
+  const {
+    currentSong,
+    isPlaying,
+    setIsPlaying,
+    loopMode,
+    setLoopMode,
+    isShuffle,
+    setIsShuffle,
+    handleSkipNext,
+    handleSkipPrevious,
+    fetchHistory
+  } = useMusicPlayer();
 
-export default function AudioPlayer({
-  currentSong,
-  isPlaying,
-  setIsPlaying,
-  onSkipNext,
-  onSkipPrevious,
-  loopMode,
-  setLoopMode,
-  isShuffle,
-  setIsShuffle,
-  queue,
-  onPlay
-}) {
   const audioRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -126,7 +127,7 @@ export default function AudioPlayer({
     } else {
       audioRef.current.pause();
     }
-  }, [isPlaying, currentSong]);
+  }, [isPlaying, currentSong, setIsPlaying]);
 
   // Helper to trigger background download of song to the local folder cache
   const backgroundCacheSong = async (song) => {
@@ -272,7 +273,6 @@ export default function AudioPlayer({
   };
 
   // Synced lyrics parser helper
-  // Formats: [01:23.45] Lyric text
   const parseSyncedLyrics = (syncedText) => {
     const lines = syncedText.split('\n');
     const parsed = [];
@@ -289,7 +289,6 @@ export default function AudioPlayer({
         parsed.push({ time: totalSeconds, text });
       }
     }
-    // Sort chronologically just in case
     parsed.sort((a, b) => a.time - b.time);
     setParsedLyrics(parsed);
   };
@@ -309,7 +308,6 @@ export default function AudioPlayer({
     
     if (activeIndex !== activeLyricsIndex) {
       setActiveLyricsIndex(activeIndex);
-      // Auto scroll active lyric into view
       const activeEl = lyricsContainerRef.current?.querySelector('.lyrics-line.active');
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -335,7 +333,7 @@ export default function AudioPlayer({
         audioRef.current.play();
       }
     } else {
-      onSkipNext();
+      handleSkipNext();
     }
   };
 
@@ -419,7 +417,7 @@ export default function AudioPlayer({
             <Shuffle size={18} />
           </button>
           
-          <button onClick={onSkipPrevious} className="player-btn" title="Previous">
+          <button onClick={handleSkipPrevious} className="player-btn" title="Previous">
             <SkipBack size={20} fill="currentColor" />
           </button>
           
@@ -432,7 +430,7 @@ export default function AudioPlayer({
             {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" style={{ marginLeft: '2px' }} />}
           </button>
           
-          <button onClick={onSkipNext} className="player-btn" title="Next">
+          <button onClick={handleSkipNext} className="player-btn" title="Next">
             <SkipForward size={20} fill="currentColor" />
           </button>
 
@@ -536,7 +534,7 @@ export default function AudioPlayer({
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleAudioEnded}
-        crossOrigin="anonymous" // Essential for Canvas visualizer CORS bypassing!
+        crossOrigin="anonymous"
       />
 
       {/* 4. Overlay Canvas Visualizer */}
