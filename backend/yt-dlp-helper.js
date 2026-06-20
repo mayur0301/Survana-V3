@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
 
+// Load environment variables
+require('dotenv').config();
+
 const CACHE_DIR = path.join(__dirname, 'cache');
 if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -14,8 +17,34 @@ const activeDownloads = new Set();
 const COOKIES_BROWSER = process.env.YT_DLP_COOKIES_BROWSER || 'chrome';
 
 function addCookiesArg(args) {
-  if (process.env.NODE_ENV !== 'production') {
-    args.push('--cookies-from-browser', COOKIES_BROWSER);
+  // 1. Check if cookies text is provided via Environment Variable (most secure for Render/Docker envs)
+  if (process.env.YT_DLP_COOKIES_TEXT) {
+    const tempCookiesPath = path.join(__dirname, 'temp-cookies.txt');
+    try {
+      // Only write if file doesn't exist or content is different to prevent excess disk IO
+      if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== process.env.YT_DLP_COOKIES_TEXT) {
+        fs.writeFileSync(tempCookiesPath, process.env.YT_DLP_COOKIES_TEXT, 'utf8');
+      }
+      args.push('--cookies', tempCookiesPath);
+      return args;
+    } catch (e) {
+      console.error('Failed to write temp-cookies.txt from YT_DLP_COOKIES_TEXT env variable:', e.message);
+    }
+  }
+
+  // 2. Check if a local cookies.txt file exists in backend/ or root directory
+  const localCookiesPath = path.join(__dirname, 'cookies.txt');
+  const rootCookiesPath = path.join(__dirname, '..', 'cookies.txt');
+
+  if (fs.existsSync(localCookiesPath)) {
+    args.push('--cookies', localCookiesPath);
+  } else if (fs.existsSync(rootCookiesPath)) {
+    args.push('--cookies', rootCookiesPath);
+  } else {
+    // 3. Fallback to browser cookies only in non-production environments
+    if (process.env.NODE_ENV !== 'production') {
+      args.push('--cookies-from-browser', COOKIES_BROWSER);
+    }
   }
   return args;
 }
@@ -28,13 +57,16 @@ function searchSongs(query) {
     const limit = 15;
     const searchQuery = `ytsearch${limit}:${query}`;
     
-    const child = spawn('python', [
+    let args = [
       '-m', 'yt_dlp',
       searchQuery,
       '--flat-playlist',
       '--dump-json',
       '--skip-download'
-    ]);
+    ];
+    args = addCookiesArg(args);
+
+    const child = spawn('python', args);
 
     let stdoutData = '';
     let stderrData = '';
