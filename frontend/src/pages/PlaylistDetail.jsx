@@ -14,7 +14,8 @@ export default function PlaylistDetail() {
     handleRemoveFromPlaylist,
     handleLikeSong,
     isSongLiked,
-    formatDuration
+    formatDuration,
+    confirmAction
   } = useMusicPlayer();
 
   const playlist = playlists.find(pl => pl.id === id);
@@ -30,11 +31,15 @@ export default function PlaylistDetail() {
     );
   }
 
-  const handleDelete = async () => {
-    if (confirm(`Are you sure you want to delete the playlist "${playlist.name}"?`)) {
-      await handleDeletePlaylist(playlist.id);
-      navigate('/');
-    }
+  const handleDelete = () => {
+    confirmAction({
+      title: 'Delete Playlist',
+      message: `Are you sure you want to delete the playlist "${playlist.name}"?`,
+      onConfirm: async () => {
+        await handleDeletePlaylist(playlist.id);
+        navigate('/');
+      }
+    });
   };
 
   return (

@@ -27,6 +27,36 @@ export function MusicPlayerProvider({ children }) {
   const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 900);
 
+  // Custom UI feedback states (Toast and Confirm Dialog)
+  const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' | 'info' }
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, onConfirm, onCancel }
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+  };
+
+  const confirmAction = ({ title, message, onConfirm, onCancel }) => {
+    setConfirmDialog({
+      title,
+      message,
+      onConfirm: () => {
+        if (onConfirm) onConfirm();
+        setConfirmDialog(null);
+      },
+      onCancel: () => {
+        if (onCancel) onCancel();
+        setConfirmDialog(null);
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   // Fetch initial data
   useEffect(() => {
     fetchLikedSongs();
@@ -122,7 +152,7 @@ export function MusicPlayerProvider({ children }) {
       });
       if (res.ok) {
         await fetchPlaylists();
-        alert(`Added "${song.title}" to playlist!`);
+        showToast(`Added "${song.title}" to playlist!`);
       }
     } catch (e) {
       console.log('Error adding song to playlist:', e);
@@ -289,9 +319,39 @@ export function MusicPlayerProvider({ children }) {
       handleShortcutClick,
       isSongLiked,
       formatDuration,
-      fetchHistory
+      fetchHistory,
+      showToast,
+      confirmAction
     }}>
       {children}
+
+      {/* Premium Toast Notification */}
+      {toast && (
+        <div className={`toast-notification ${toast.type}`}>
+          <div className="toast-content">
+            <span className="toast-message">{toast.message}</span>
+          </div>
+          <button className="toast-close" onClick={() => setToast(null)}>×</button>
+        </div>
+      )}
+
+      {/* Premium Confirmation Dialog */}
+      {confirmDialog && (
+        <div className="confirm-dialog-overlay">
+          <div className="confirm-dialog-content">
+            <h4 className="confirm-dialog-title">{confirmDialog.title}</h4>
+            <p className="confirm-dialog-message">{confirmDialog.message}</p>
+            <div className="confirm-dialog-actions">
+              <button className="config-btn config-btn-secondary" onClick={confirmDialog.onCancel}>
+                Cancel
+              </button>
+              <button className="config-btn config-btn-primary" onClick={confirmDialog.onConfirm}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </MusicPlayerContext.Provider>
   );
 }

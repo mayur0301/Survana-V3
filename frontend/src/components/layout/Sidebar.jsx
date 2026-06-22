@@ -11,7 +11,8 @@ export default function Sidebar() {
     playlists,
     handleCreatePlaylist,
     handleDeletePlaylist,
-    isSidebarOpen
+    isSidebarOpen,
+    confirmAction
   } = useMusicPlayer();
 
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -26,13 +27,17 @@ export default function Sidebar() {
     }
   };
 
-  const handleDelete = async (e, plId, plName) => {
+  const handleDelete = (e, plId, plName) => {
     e.preventDefault();
     e.stopPropagation();
-    if (confirm(`Delete playlist "${plName}"?`)) {
-      await handleDeletePlaylist(plId);
-      navigate('/');
-    }
+    confirmAction({
+      title: 'Delete Playlist',
+      message: `Delete playlist "${plName}"?`,
+      onConfirm: async () => {
+        await handleDeletePlaylist(plId);
+        navigate('/');
+      }
+    });
   };
 
   return (

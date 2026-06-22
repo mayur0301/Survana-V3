@@ -3,11 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
 const config = require('../config');
-
-const CACHE_DIR = config.CACHE_DIR;
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-}
+const { getCacheDir } = require('../database/settings');
 
 // Track active background downloads to prevent duplicate processes
 const activeDownloads = new Set();
@@ -167,8 +163,9 @@ function getStreamUrl(videoId) {
 /**
  * Downloads a track fully to the cache directory in the background
  */
-function downloadToCache(videoId) {
-  const cachePath = path.join(CACHE_DIR, `${videoId}.webm`);
+async function downloadToCache(videoId) {
+  const cacheDir = await getCacheDir();
+  const cachePath = path.join(cacheDir, `${videoId}.webm`);
   
   if (fs.existsSync(cachePath) || activeDownloads.has(videoId)) {
     return; // Already cached or currently downloading
@@ -226,7 +223,8 @@ function downloadToCache(videoId) {
  * to support smooth seeking/scrubbing for uncached files.
  */
 async function streamAudio(videoId, req, res) {
-  const cachePath = path.join(CACHE_DIR, `${videoId}.webm`);
+  const cacheDir = await getCacheDir();
+  const cachePath = path.join(cacheDir, `${videoId}.webm`);
 
   // 1. If cache exists, serve it directly.
   // Express res.sendFile automatically handles HTTP Range requests and seeking.
@@ -296,8 +294,9 @@ async function streamAudio(videoId, req, res) {
 /**
  * Downloads audio file and serves it as a browser attachment
  */
-function downloadAudio(videoId, res) {
-  const cachePath = path.join(CACHE_DIR, `${videoId}.webm`);
+async function downloadAudio(videoId, res) {
+  const cacheDir = await getCacheDir();
+  const cachePath = path.join(cacheDir, `${videoId}.webm`);
   
   const triggerDownload = (filePath, fileName) => {
     res.download(filePath, fileName, (err) => {

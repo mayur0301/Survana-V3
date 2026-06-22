@@ -3,71 +3,6 @@ import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, 
 import { useMusicPlayer } from '../../context/MusicPlayerContext';
 import Visualizer from './Visualizer';
 
-// IndexedDB database parameters for storing the directory handle
-const dbName = 'SurvanaCacheDB';
-const storeName = 'handles';
-
-function getDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(dbName, 1);
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(storeName)) {
-        db.createObjectStore(storeName);
-      }
-    };
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onerror = (e) => reject(e.target.error);
-  });
-}
-
-async function getStoredDirectoryHandle() {
-  try {
-    const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readonly');
-      const store = transaction.objectStore(storeName);
-      const request = store.get('directory');
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
-    });
-  } catch (e) {
-    console.error('Failed to get stored directory handle from IndexedDB:', e);
-    return null;
-  }
-}
-
-async function setStoredDirectoryHandle(handle) {
-  try {
-    const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readwrite');
-      const store = transaction.objectStore(storeName);
-      const request = store.put(handle, 'directory');
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  } catch (e) {
-    console.error('Failed to store directory handle in IndexedDB:', e);
-  }
-}
-
-async function verifyPermission(fileHandle, readWrite) {
-  const options = {};
-  if (readWrite) {
-    options.mode = 'readwrite';
-  }
-  // Check query permission first
-  if ((await fileHandle.queryPermission(options)) === 'granted') {
-    return true;
-  }
-  // Request active user permission
-  if ((await fileHandle.requestPermission(options)) === 'granted') {
-    return true;
-  }
-  return false;
-}
-
 export default function AudioPlayer() {
   const {
     currentSong,
@@ -83,7 +18,8 @@ export default function AudioPlayer() {
     isLyricsOpen,
     setIsLyricsOpen,
     isVisualizerOpen,
-    setIsVisualizerOpen
+    setIsVisualizerOpen,
+    showToast
   } = useMusicPlayer();
 
   const audioRef = useRef(null);
@@ -99,22 +35,60 @@ export default function AudioPlayer() {
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const lyricsContainerRef = useRef(null);
 
-  // Local Cache Folder states
-  const [dirHandle, setDirHandle] = useState(null);
-  const [dirName, setDirName] = useState('');
-  const [cachingStatus, setCachingStatus] = useState(''); // '', 'local', 'caching', 'caching-done', 'cloud', 'checking'
+  // Dynamic Server Cache Configuration states
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [backendCachePath, setBackendCachePath] = useState('');
+  const [isConfigured, setIsConfigured] = useState(true);
+  const [modalInputPath, setModalInputPath] = useState('');
 
-  // Retrieve cached directory handle from IndexedDB on startup
+  // Fetch current config on mount
   useEffect(() => {
-    async function loadDirectory() {
-      const handle = await getStoredDirectoryHandle();
-      if (handle) {
-        setDirHandle(handle);
-        setDirName(handle.name);
+    async function checkConfig() {
+      try {
+        const res = await fetch('/api/config/cache-path');
+        if (res.ok) {
+          const data = await res.json();
+          setBackendCachePath(data.cachePath);
+          setIsConfigured(data.isConfigured);
+          setModalInputPath(data.cachePath || '');
+          if (!data.isConfigured) {
+            setShowConfigModal(true);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch cache path config:', e);
       }
     }
-    loadDirectory();
+    checkConfig();
   }, []);
+
+  const handleSaveConfig = async (e) => {
+    if (e) e.preventDefault();
+    if (!modalInputPath.trim()) {
+      showToast('Please enter a valid directory path.', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/config/cache-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cachePath: modalInputPath.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBackendCachePath(data.cachePath);
+        setIsConfigured(true);
+        setShowConfigModal(false);
+        showToast('Cache directory updated successfully!');
+      } else {
+        showToast(data.error || 'Failed to update cache directory.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to connect to the server configuration API.', 'error');
+    }
+  };
 
   // 1. Sync Audio Element state with isPlaying prop
   useEffect(() => {
@@ -129,80 +103,20 @@ export default function AudioPlayer() {
     }
   }, [isPlaying, currentSong, setIsPlaying]);
 
-  // Helper to trigger background download of song to the local folder cache
-  const backgroundCacheSong = async (song) => {
-    try {
-      const response = await fetch(`/api/download/${song.id}`);
-      if (response.ok) {
-        const blob = await response.blob();
-        if (dirHandle) {
-          const fileHandle = await dirHandle.getFileHandle(`${song.id}.mp3`, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          console.log(`Saved ${song.title} locally to folder cache.`);
-          setCachingStatus('caching-done');
-          // Transition back to 'local' status after 2 seconds
-          setTimeout(() => setCachingStatus('local'), 2000);
-        }
-      } else {
-        setCachingStatus('cloud');
-      }
-    } catch (err) {
-      console.error("Failed to background cache song locally:", err);
-      setCachingStatus('cloud');
-    }
-  };
-
-  // Main setup to verify cache and bind audio src
-  const setupAudioSource = async (song) => {
+  // Main setup to bind audio src
+  const setupAudioSource = (song) => {
     setCurrentTime(0);
     setDuration(song.duration || 0);
     fetchLyrics(song);
-    setCachingStatus('checking');
 
-    let fileBlobUrl = null;
-    let verified = false;
-
-    if (dirHandle) {
-      try {
-        verified = await verifyPermission(dirHandle, true);
-        if (verified) {
-          try {
-            const fileHandle = await dirHandle.getFileHandle(`${song.id}.mp3`);
-            const file = await fileHandle.getFile();
-            fileBlobUrl = URL.createObjectURL(file);
-            setCachingStatus('local');
-          } catch (e) {
-            console.log("Song not found in local cache folder, streaming and saving.");
-          }
-        } else {
-          console.log("Write/Read permissions were denied for the local folder.");
-        }
-      } catch (err) {
-        console.error("Permission request failed:", err);
-      }
-    }
-
-    if (fileBlobUrl) {
-      audioRef.current.src = fileBlobUrl;
-    } else {
-      // Stream from Express proxy server
-      const queryParams = new URLSearchParams({
-        title: song.title,
-        artist: song.artist,
-        duration: song.duration,
-        thumbnail: song.thumbnail
-      }).toString();
-      audioRef.current.src = `/api/stream/${song.id}?${queryParams}`;
-      
-      if (dirHandle && verified) {
-        setCachingStatus('caching');
-        backgroundCacheSong(song);
-      } else {
-        setCachingStatus('cloud');
-      }
-    }
+    // Stream from Express proxy server
+    const queryParams = new URLSearchParams({
+      title: song.title,
+      artist: song.artist,
+      duration: song.duration,
+      thumbnail: song.thumbnail
+    }).toString();
+    audioRef.current.src = `/api/stream/${song.id}?${queryParams}`;
 
     // Play if isPlaying is true
     if (isPlaying) {
@@ -221,31 +135,12 @@ export default function AudioPlayer() {
       audioRef.current.src = '';
       setCurrentTime(0);
       setDuration(0);
-      setCachingStatus('');
     }
   }, [currentSong]);
 
-  const handleSelectDirectory = async () => {
-    try {
-      const handle = await window.showDirectoryPicker();
-      await setStoredDirectoryHandle(handle);
-      setDirHandle(handle);
-      setDirName(handle.name);
-      alert(`Successfully connected local folder: "${handle.name}". Streamed tracks will now be saved here for offline playback!`);
-      // If a song is currently playing and not local, trigger caching immediately
-      if (currentSong && cachingStatus === 'cloud') {
-        const verified = await verifyPermission(handle, true);
-        if (verified) {
-          setCachingStatus('caching');
-          backgroundCacheSong(currentSong);
-        }
-      }
-    } catch (e) {
-      console.log('User cancelled folder picker or browser unsupported:', e.message);
-      if (e.name === 'TypeError') {
-        alert('File System Access API is not supported on this browser. Please use Chrome, Edge, or Opera.');
-      }
-    }
+  const handleSelectDirectory = () => {
+    setModalInputPath(backendCachePath);
+    setShowConfigModal(true);
   };
 
   // 3. Load and parse lyrics
@@ -383,21 +278,6 @@ export default function AudioPlayer() {
               <span className="player-title">{currentSong.title}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className="player-artist">{currentSong.artist}</span>
-                {cachingStatus === 'local' && (
-                  <span style={{ fontSize: '10px', color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Local</span>
-                )}
-                {cachingStatus === 'caching' && (
-                  <span style={{ fontSize: '10px', color: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Caching...</span>
-                )}
-                {cachingStatus === 'caching-done' && (
-                  <span style={{ fontSize: '10px', color: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Saved</span>
-                )}
-                {cachingStatus === 'cloud' && (
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>Cloud Stream</span>
-                )}
-                {cachingStatus === 'checking' && (
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.03)', padding: '2px 6px', borderRadius: '4px' }}>Checking...</span>
-                )}
               </div>
             </div>
           </>
@@ -467,12 +347,12 @@ export default function AudioPlayer() {
       <div className="player-actions">
         <button
           onClick={handleSelectDirectory}
-          className={`player-btn ${dirHandle ? 'active' : ''}`}
-          title={dirHandle ? `Cache Folder Connected: ${dirName}` : "Connect Local Cache Folder"}
+          className={`player-btn ${backendCachePath ? 'active' : ''}`}
+          title={backendCachePath ? `Server Cache: ${backendCachePath}` : "Configure Server Cache Folder"}
           style={{ position: 'relative' }}
         >
           <FolderOpen size={18} />
-          {dirHandle && (
+          {backendCachePath && (
             <span style={{
               width: '6px',
               height: '6px',
@@ -582,6 +462,45 @@ export default function AudioPlayer() {
           )}
         </div>
       </div>
+
+      {/* 6. Dynamic Cache Configuration Modal Overlay */}
+      {showConfigModal && (
+        <div className="config-modal-overlay">
+          <div className="config-modal-content">
+            <h3 className="config-modal-title">Configure Cache Location</h3>
+            <p className="config-modal-desc">
+              Survana saves your tracks for offline playback. Please specify the absolute path to a folder on your computer where we should store them (outside the codebase).
+            </p>
+            <form onSubmit={handleSaveConfig} className="config-modal-form">
+              <div className="config-input-group">
+                <label className="config-input-label">Absolute Directory Path</label>
+                <input
+                  type="text"
+                  placeholder="e.g. C:\Users\Vaibhav\Music\SurvanaCache"
+                  value={modalInputPath}
+                  onChange={(e) => setModalInputPath(e.target.value)}
+                  className="config-input-text"
+                  required
+                />
+              </div>
+              <div className="config-modal-actions">
+                {isConfigured && (
+                  <button
+                    type="button"
+                    onClick={() => setShowConfigModal(false)}
+                    className="config-btn config-btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button type="submit" className="config-btn config-btn-primary">
+                  Save Location
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </footer>
   );
 }
