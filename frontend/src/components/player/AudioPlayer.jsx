@@ -25,7 +25,6 @@ export default function AudioPlayer() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
-  
 
   // Dynamic Server Cache Configuration states
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -134,7 +133,6 @@ export default function AudioPlayer() {
     setShowConfigModal(true);
   };
 
-
   // 4. Handle time update events
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
@@ -193,124 +191,114 @@ export default function AudioPlayer() {
   };
 
   return (
-    <footer className="player-bar">
+    <footer className="w-full bg-bg-secondary/95 backdrop-blur-2xl border-t border-border-glass py-4 px-6 md:px-10 flex flex-col md:grid md:grid-cols-[300px_1fr_300px] items-center justify-between gap-4 md:gap-6 z-[100] sticky bottom-0 select-none">
       {/* 1. Left side - Song Details */}
-      <div className="player-song-info">
+      <div className="flex items-center min-w-0 w-full md:w-auto justify-center md:justify-start">
         {currentSong ? (
           <>
-            <img src={currentSong.thumbnail} alt={currentSong.title} className="player-thumb" />
-            <div className="player-metadata">
-              <span className="player-title">{currentSong.title}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span className="player-artist">{currentSong.artist}</span>
+            <img src={currentSong.thumbnail} alt={currentSong.title} className="w-14 h-14 rounded-xl object-cover flex-shrink-0 mr-4 shadow-lg border border-border-glass" />
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-white truncate max-w-[220px]" title={currentSong.title}>{currentSong.title}</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-zinc-400 truncate max-w-[220px]" title={currentSong.artist}>{currentSong.artist}</span>
               </div>
             </div>
           </>
         ) : (
-          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No track selected</div>
+          <div className="text-xs text-zinc-500">No track selected</div>
         )}
       </div>
 
       {/* 2. Middle side - Audio Controls and Seek Slider */}
-      <div className="player-controls-container">
-        <div className="player-controls">
+      <div className="flex flex-col items-center gap-2.5 w-full max-w-xl md:max-w-none">
+        <div className="flex items-center gap-5">
           <button
             onClick={() => setIsShuffle(!isShuffle)}
-            className={`player-btn ${isShuffle ? 'active' : ''}`}
+            className={`p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center relative ${isShuffle ? 'text-accent-purple hover:text-accent-purple hover:bg-accent-purple/5' : ''}`}
             title="Shuffle"
           >
             <Shuffle size={18} />
           </button>
           
-          <button onClick={handleSkipPrevious} className="player-btn" title="Previous">
+          <button onClick={handleSkipPrevious} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center" title="Previous">
             <SkipBack size={20} fill="currentColor" />
           </button>
           
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="player-btn player-btn-play"
+            className="w-11 h-11 bg-white text-black hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-all duration-200 shadow-md flex items-center justify-center rounded-full cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             title={isPlaying ? "Pause" : "Play"}
             disabled={!currentSong}
           >
-            {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" style={{ marginLeft: '2px' }} />}
+            {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
           </button>
           
-          <button onClick={handleSkipNext} className="player-btn" title="Next">
+          <button onClick={handleSkipNext} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center" title="Next">
             <SkipForward size={20} fill="currentColor" />
           </button>
-
+          
           <button
             onClick={() => {
               if (loopMode === 'none') setLoopMode('all');
               else if (loopMode === 'all') setLoopMode('one');
               else setLoopMode('none');
             }}
-            className={`player-btn ${loopMode !== 'none' ? 'active' : ''}`}
+            className={`p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center relative ${loopMode !== 'none' ? 'text-accent-purple hover:text-accent-purple hover:bg-accent-purple/5' : ''}`}
             title={`Repeat: ${loopMode === 'one' ? 'One' : loopMode === 'all' ? 'All' : 'Off'}`}
           >
             <Repeat size={18} />
-            {loopMode === 'one' && <span style={{ fontSize: '9px', fontWeight: 'bold', position: 'absolute', transform: 'translate(10px, -8px)' }}>1</span>}
+            {loopMode === 'one' && <span className="text-[9px] font-bold absolute transform translate-[10px,-8px]">1</span>}
           </button>
         </div>
 
-        <div className="progress-container">
-          <span className="time-stamp">{formatTime(currentTime)}</span>
+        <div className="flex items-center gap-3 w-full">
+          <span className="text-[11px] font-medium text-zinc-500 min-w-[32px] text-center">{formatTime(currentTime)}</span>
           <input
             type="range"
             min={0}
             max={duration || 100}
             value={currentTime}
             onChange={handleSeek}
-            className="slider-input"
+            className="flex-grow h-1.5 rounded-lg bg-zinc-800 accent-accent-purple cursor-pointer focus:outline-none"
             disabled={!currentSong}
           />
-          <span className="time-stamp">{formatTime(duration)}</span>
+          <span className="text-[11px] font-medium text-zinc-500 min-w-[32px] text-center">{formatTime(duration)}</span>
         </div>
       </div>
 
       {/* 3. Right side - Option features */}
-      <div className="player-actions">
+      <div className="flex items-center gap-4 w-full md:w-auto justify-center md:justify-end">
         <button
           onClick={handleSelectDirectory}
-          className={`player-btn ${backendCachePath ? 'active' : ''}`}
+          className={`p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center relative ${backendCachePath ? 'text-accent-purple hover:text-accent-purple hover:bg-accent-purple/5' : ''}`}
           title={backendCachePath ? `Server Cache: ${backendCachePath}` : "Configure Server Cache Folder"}
-          style={{ position: 'relative' }}
         >
           <FolderOpen size={18} />
           {backendCachePath && (
-            <span style={{
-              width: '6px',
-              height: '6px',
-              backgroundColor: '#22c55e',
-              borderRadius: '50%',
-              position: 'absolute',
-              top: '6px',
-              right: '6px'
-            }} />
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full absolute top-1.5 right-1.5" />
           )}
         </button>
 
         <button
           onClick={() => setIsVisualizerOpen(!isVisualizerOpen)}
-          className={`player-btn ${isVisualizerOpen ? 'active' : ''}`}
+          className={`p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center relative ${isVisualizerOpen ? 'text-accent-purple hover:text-accent-purple hover:bg-accent-purple/5' : ''}`}
           title="Open Audio Visualizer"
           disabled={!currentSong}
         >
           <Sparkles size={18} />
         </button>
 
-
         <button
           onClick={triggerDownload}
-          className="player-btn"
+          className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center"
           title="Download Track"
           disabled={!currentSong}
         >
           <Download size={18} />
         </button>
 
-        <div className="volume-container">
-          <button onClick={toggleMute} className="player-btn">
+        <div className="flex items-center gap-2 max-w-[120px]">
+          <button onClick={toggleMute} className="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center">
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
           <input
@@ -320,7 +308,7 @@ export default function AudioPlayer() {
             step={0.01}
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="slider-input"
+            className="w-20 h-1.5 rounded-lg bg-zinc-800 accent-accent-purple cursor-pointer focus:outline-none"
           />
         </div>
       </div>
@@ -342,38 +330,37 @@ export default function AudioPlayer() {
         currentSong={currentSong}
       />
 
-
       {/* 6. Dynamic Cache Configuration Modal Overlay */}
       {showConfigModal && (
-        <div className="config-modal-overlay">
-          <div className="config-modal-content">
-            <h3 className="config-modal-title">Configure Cache Location</h3>
-            <p className="config-modal-desc">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[10000] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-bg-secondary border border-border-glass rounded-3xl p-6 md:p-8 max-w-md w-full shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-scale-up">
+            <h3 className="text-xl font-extrabold text-white mb-2">Configure Cache Location</h3>
+            <p className="text-xs leading-relaxed text-zinc-400 mb-6">
               Survana saves your tracks for offline playback. Please specify the absolute path to a folder on your computer where we should store them (outside the codebase).
             </p>
-            <form onSubmit={handleSaveConfig} className="config-modal-form">
-              <div className="config-input-group">
-                <label className="config-input-label">Absolute Directory Path</label>
+            <form onSubmit={handleSaveConfig} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider pl-1">Absolute Directory Path</label>
                 <input
                   type="text"
                   placeholder="e.g. C:\Users\Vaibhav\Music\SurvanaCache"
                   value={modalInputPath}
                   onChange={(e) => setModalInputPath(e.target.value)}
-                  className="config-input-text"
+                  className="bg-bg-tertiary border border-border-glass rounded-xl px-4 py-3 text-sm text-white w-full focus:outline-none focus:border-accent-purple transition-all duration-200 placeholder-zinc-600"
                   required
                 />
               </div>
-              <div className="config-modal-actions">
+              <div className="flex justify-end gap-3">
                 {isConfigured && (
                   <button
                     type="button"
                     onClick={() => setShowConfigModal(false)}
-                    className="config-btn config-btn-secondary"
+                    className="bg-white/5 border border-border-glass text-zinc-300 hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors duration-200 cursor-pointer"
                   >
                     Cancel
                   </button>
                 )}
-                <button type="submit" className="config-btn config-btn-primary">
+                <button type="submit" className="bg-accent-purple text-white px-5 py-2.5 rounded-xl text-xs font-semibold hover:bg-accent-purple/90 transition-colors duration-200 cursor-pointer shadow-[0_4px_15px_rgba(168,85,247,0.3)]">
                   Save Location
                 </button>
               </div>
