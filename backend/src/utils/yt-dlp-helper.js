@@ -160,14 +160,117 @@ function getStreamUrl(videoId) {
   });
 }
 
+// Sanitizes title to be safe for Windows and Linux/macOS filenames
+function sanitizeFilename(name) {
+  return name.replace(/[\\/:*?"<>|]/g, '_').trim();
+}
+
+// Scans for cached file for a videoId (new format with title or old format fallback)
+async function findCachedFile(cacheDir, videoId) {
+  try {
+    if (!fs.existsSync(cacheDir)) return null;
+    const files = await fs.promises.readdir(cacheDir);
+    const found = files.find(f => (f === `${videoId}.webm` || f.startsWith(`${videoId} - `)) && f.endsWith('.webm'));
+    return found ? path.join(cacheDir, found) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// MongoDB database lookup for song title
+async function lookupSongTitleInDb(videoId) {
+  try {
+    const Liked = require('../database/models/Liked');
+    const History = require('../database/models/History');
+    const Playlist = require('../database/models/Playlist');
+
+    const liked = await Liked.findOne({ id: videoId });
+    if (liked && liked.title) return liked.title;
+
+    const history = await History.findOne({ id: videoId });
+    if (history && history.title) return history.title;
+
+    const playlist = await Playlist.findOne({ "songs.id": videoId });
+    if (playlist) {
+      const song = playlist.songs.find(s => s.id === videoId);
+      if (song && song.title) return song.title;
+    }
+  } catch (e) {
+    console.error('[Cache Migration] DB lookup error:', e.message);
+  }
+  return null;
+}
+
+// Fetch title via yt-dlp metadata
+function getVideoTitle(videoId) {
+  return new Promise((resolve, reject) => {
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const args = prepareYtDlpArgs(['--get-title', youtubeUrl], false);
+    const child = spawn('python', args);
+    let stdoutData = '';
+    child.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+    });
+    child.on('close', (code) => {
+      if (code === 0 && stdoutData.trim()) {
+        resolve(stdoutData.trim());
+      } else {
+        reject(new Error(`Failed to get title for ${videoId}`));
+      }
+    });
+  });
+}
+
+// Background migration function to rename old cache files
+async function renameCachedFiles() {
+  try {
+    const cacheDir = await getCacheDir();
+    if (!fs.existsSync(cacheDir)) return;
+
+    const files = await fs.promises.readdir(cacheDir);
+    const oldFiles = files.filter(f => f.endsWith('.webm') && !f.includes(' - '));
+
+    if (oldFiles.length === 0) return;
+
+    console.log(`[Cache Migration] Found ${oldFiles.length} legacy cached files to migrate.`);
+
+    for (const file of oldFiles) {
+      const videoId = path.basename(file, '.webm');
+      if (videoId.length !== 11) continue; // Skip non-youtube ids
+
+      try {
+        let title = await lookupSongTitleInDb(videoId);
+        if (!title) {
+          console.log(`[Cache Migration] Song title for ${videoId} not in DB, querying YouTube...`);
+          title = await getVideoTitle(videoId).catch(() => null);
+        }
+
+        const finalTitle = title || 'Unknown Title';
+        const sanitizedTitle = sanitizeFilename(finalTitle);
+        const oldPath = path.join(cacheDir, file);
+        const newPath = path.join(cacheDir, `${videoId} - ${sanitizedTitle}.webm`);
+
+        if (fs.existsSync(oldPath)) {
+          await fs.promises.rename(oldPath, newPath);
+          console.log(`[Cache Migration] Migrated cache file: ${file} -> ${videoId} - ${sanitizedTitle}.webm`);
+        }
+      } catch (err) {
+        console.error(`[Cache Migration] Failed migrating ${file}:`, err.message);
+      }
+    }
+  } catch (e) {
+    console.error('[Cache Migration] Error during migration:', e.message);
+  }
+}
+
 /**
  * Downloads a track fully to the cache directory in the background
  */
 async function downloadToCache(videoId) {
   const cacheDir = await getCacheDir();
-  const cachePath = path.join(cacheDir, `${videoId}.webm`);
+  const existingFile = await findCachedFile(cacheDir, videoId);
   
-  if (fs.existsSync(cachePath) || activeDownloads.has(videoId)) {
+  if (existingFile || activeDownloads.has(videoId)) {
     return; // Already cached or currently downloading
   }
 
@@ -175,10 +278,11 @@ async function downloadToCache(videoId) {
   console.log(`[Background Cache] Starting download for ${videoId}...`);
 
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
   const runDownload = (useCookies) => {
     return new Promise((resolve, reject) => {
-      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', cachePath, youtubeUrl], useCookies);
+      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
       
       const ytdlp = spawn('python', args);
       let stderrData = '';
@@ -205,11 +309,12 @@ async function downloadToCache(videoId) {
     .then(() => {
       console.log(`[Background Cache] Finished caching ${videoId} successfully.`);
     })
-    .catch((err) => {
+    .catch(async (err) => {
       console.error(`[Background Cache] Failed caching ${videoId} completely:`, err.message);
       // Cleanup incomplete file if any
-      if (fs.existsSync(cachePath)) {
-        fs.unlink(cachePath, () => {});
+      const failedFile = await findCachedFile(cacheDir, videoId);
+      if (failedFile && fs.existsSync(failedFile)) {
+        fs.unlink(failedFile, () => {});
       }
     })
     .finally(() => {
@@ -224,14 +329,14 @@ async function downloadToCache(videoId) {
  */
 async function streamAudio(videoId, req, res) {
   const cacheDir = await getCacheDir();
-  const cachePath = path.join(cacheDir, `${videoId}.webm`);
+  const cachedPath = await findCachedFile(cacheDir, videoId);
 
   // 1. If cache exists, serve it directly.
   // Express res.sendFile automatically handles HTTP Range requests and seeking.
-  if (fs.existsSync(cachePath)) {
-    console.log(`[Cache Hit] Serving ${videoId} from local cache.`);
+  if (cachedPath) {
+    console.log(`[Cache Hit] Serving ${videoId} from local cache: ${path.basename(cachedPath)}`);
     res.setHeader('Content-Type', 'audio/webm');
-    return res.sendFile(cachePath);
+    return res.sendFile(cachedPath);
   }
 
   // 2. If not cached, resolve stream URL and proxy it while forwarding range headers
@@ -296,7 +401,7 @@ async function streamAudio(videoId, req, res) {
  */
 async function downloadAudio(videoId, res) {
   const cacheDir = await getCacheDir();
-  const cachePath = path.join(cacheDir, `${videoId}.webm`);
+  const cachedPath = await findCachedFile(cacheDir, videoId);
   
   const triggerDownload = (filePath, fileName) => {
     res.download(filePath, fileName, (err) => {
@@ -309,16 +414,17 @@ async function downloadAudio(videoId, res) {
     });
   };
 
-  if (fs.existsSync(cachePath)) {
-    return triggerDownload(cachePath, `${videoId}.webm`);
+  if (cachedPath) {
+    return triggerDownload(cachedPath, path.basename(cachedPath));
   }
 
   console.log(`[Download] Downloading ${videoId} to serve...`);
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
   const runDownload = (useCookies) => {
     return new Promise((resolve, reject) => {
-      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', cachePath, youtubeUrl], useCookies);
+      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
       
       const ytdlp = spawn('python', args);
       let stderrData = '';
@@ -342,9 +448,14 @@ async function downloadAudio(videoId, res) {
       console.warn(`[Download] Failed with cookies, retrying without:`, err.message);
       return runDownload(false);
     })
-    .then(() => {
-      console.log(`[Download Success] Saved to ${cachePath}`);
-      triggerDownload(cachePath, `${videoId}.webm`);
+    .then(async () => {
+      const newCachedPath = await findCachedFile(cacheDir, videoId);
+      if (newCachedPath) {
+        console.log(`[Download Success] Saved to ${newCachedPath}`);
+        triggerDownload(newCachedPath, path.basename(newCachedPath));
+      } else {
+        throw new Error('Downloaded file not found in cache');
+      }
     })
     .catch((err) => {
       console.error(`[Download Error] Failed completely:`, err.message);
@@ -357,5 +468,6 @@ async function downloadAudio(videoId, res) {
 module.exports = {
   searchSongs,
   streamAudio,
-  downloadAudio
+  downloadAudio,
+  renameCachedFiles
 };

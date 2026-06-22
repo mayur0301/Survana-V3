@@ -54,4 +54,12 @@ app.use(errorHandler);
 
 app.listen(config.PORT, () => {
   console.log(`Survana V3 server is running on port ${config.PORT}`);
+  
+  // Run background migration to rename old cache files
+  try {
+    const { renameCachedFiles } = require('./utils/yt-dlp-helper');
+    renameCachedFiles();
+  } catch (e) {
+    console.error('Failed to start cache migration:', e.message);
+  }
 });

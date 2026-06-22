@@ -324,25 +324,25 @@ export function MusicPlayerProvider({ children }) {
 
       {/* Premium Toast Notification */}
       {toast && (
-        <div className={`toast-notification ${toast.type}`}>
-          <div className="toast-content">
-            <span className="toast-message">{toast.message}</span>
+        <div className={`fixed bottom-28 right-6 bg-bg-secondary/95 border border-border-glass backdrop-blur-md rounded-2xl p-4 flex items-center justify-between gap-4 shadow-2xl z-[10000] min-w-[280px] max-w-[400px] animate-slide-in-right border-l-4 ${toast.type === 'success' ? 'border-l-green-500' : toast.type === 'error' ? 'border-l-red-500' : 'border-l-accent-cyan'}`}>
+          <div className="flex items-center gap-2.5 text-sm font-semibold text-white">
+            <span>{toast.message}</span>
           </div>
-          <button className="toast-close" onClick={() => setToast(null)}>×</button>
+          <button className="text-zinc-500 hover:text-white text-lg font-bold cursor-pointer transition-colors leading-none" onClick={() => setToast(null)}>×</button>
         </div>
       )}
 
       {/* Premium Confirmation Dialog */}
       {confirmDialog && (
-        <div className="confirm-dialog-overlay">
-          <div className="confirm-dialog-content">
-            <h4 className="confirm-dialog-title">{confirmDialog.title}</h4>
-            <p className="confirm-dialog-message">{confirmDialog.message}</p>
-            <div className="confirm-dialog-actions">
-              <button className="config-btn config-btn-secondary" onClick={confirmDialog.onCancel}>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[99999] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-bg-secondary border border-border-glass rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-scale-up">
+            <h4 className="text-lg font-extrabold text-white mb-2">{confirmDialog.title}</h4>
+            <p className="text-xs leading-relaxed text-zinc-400 mb-6">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-3">
+              <button className="bg-white/5 border border-border-glass text-zinc-300 hover:text-white px-5 py-2.5 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors duration-200 cursor-pointer" onClick={confirmDialog.onCancel}>
                 Cancel
               </button>
-              <button className="config-btn config-btn-primary" onClick={confirmDialog.onConfirm}>
+              <button className="bg-accent-purple text-white px-5 py-2.5 rounded-xl text-xs font-semibold hover:bg-accent-purple/90 transition-colors duration-200 cursor-pointer shadow-[0_4px_15px_rgba(234,88,12,0.3)]" onClick={confirmDialog.onConfirm}>
                 Confirm
               </button>
             </div>
