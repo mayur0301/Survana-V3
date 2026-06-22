@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config');
 const { errorHandler } = require('./middleware');
 
@@ -21,8 +22,7 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'DELETE', 'PUT'],
-  allowedHeaders: ['Content-Type', 'Range']
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS']
 }));
 app.use(morgan('dev'));
 app.use(express.json());
@@ -34,9 +34,9 @@ app.use('/api/playlists', playlistsRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/lyrics', lyricsRoutes);
 
-// Serve static frontend files in production
-if (config.NODE_ENV === 'production') {
-  const distPath = path.join(__dirname, '../../frontend/dist');
+// Serve static frontend files in production or if dist build exists
+const distPath = path.join(__dirname, '../../frontend/dist');
+if (config.NODE_ENV === 'production' || fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   
   // Wildcard fallback to serve index.html for React SPA
