@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, Sparkles, Languages, Download, ChevronDown, FolderOpen } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, Sparkles, Download, FolderOpen } from 'lucide-react';
 import { useMusicPlayer } from '../../context/MusicPlayerContext';
 import Visualizer from './Visualizer';
 
@@ -15,8 +15,6 @@ export default function AudioPlayer() {
     handleSkipNext,
     handleSkipPrevious,
     fetchHistory,
-    isLyricsOpen,
-    setIsLyricsOpen,
     isVisualizerOpen,
     setIsVisualizerOpen,
     showToast
@@ -28,12 +26,6 @@ export default function AudioPlayer() {
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   
-  // Lyrics data states
-  const [lyrics, setLyrics] = useState({ plain: null, synced: null });
-  const [parsedLyrics, setParsedLyrics] = useState([]);
-  const [activeLyricsIndex, setActiveLyricsIndex] = useState(-1);
-  const [loadingLyrics, setLoadingLyrics] = useState(false);
-  const lyricsContainerRef = useRef(null);
 
   // Dynamic Server Cache Configuration states
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -107,7 +99,6 @@ export default function AudioPlayer() {
   const setupAudioSource = (song) => {
     setCurrentTime(0);
     setDuration(song.duration || 0);
-    fetchLyrics(song);
 
     // Stream from Express proxy server
     const queryParams = new URLSearchParams({
@@ -143,72 +134,6 @@ export default function AudioPlayer() {
     setShowConfigModal(true);
   };
 
-  // 3. Load and parse lyrics
-  const fetchLyrics = async (song) => {
-    setLoadingLyrics(true);
-    setLyrics({ plain: null, synced: null });
-    setParsedLyrics([]);
-    setActiveLyricsIndex(-1);
-
-    try {
-      const res = await fetch(`/api/lyrics?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLyrics(data);
-        
-        if (data.synced) {
-          parseSyncedLyrics(data.synced);
-        }
-      }
-    } catch (err) {
-      console.log('Failed to fetch lyrics:', err);
-    } finally {
-      setLoadingLyrics(false);
-    }
-  };
-
-  // Synced lyrics parser helper
-  const parseSyncedLyrics = (syncedText) => {
-    const lines = syncedText.split('\n');
-    const parsed = [];
-    const timeRegex = /\[(\d+):(\d+)\.(\d+)\]/;
-
-    for (const line of lines) {
-      const match = timeRegex.exec(line);
-      if (match) {
-        const min = parseInt(match[1]);
-        const sec = parseInt(match[2]);
-        const ms = parseInt(match[3]);
-        const totalSeconds = min * 60 + sec + ms / 100;
-        const text = line.replace(timeRegex, '').trim();
-        parsed.push({ time: totalSeconds, text });
-      }
-    }
-    parsed.sort((a, b) => a.time - b.time);
-    setParsedLyrics(parsed);
-  };
-
-  // Update active lyric line based on current playback time
-  useEffect(() => {
-    if (parsedLyrics.length === 0) return;
-    
-    let activeIndex = -1;
-    for (let i = 0; i < parsedLyrics.length; i++) {
-      if (currentTime >= parsedLyrics[i].time) {
-        activeIndex = i;
-      } else {
-        break;
-      }
-    }
-    
-    if (activeIndex !== activeLyricsIndex) {
-      setActiveLyricsIndex(activeIndex);
-      const activeEl = lyricsContainerRef.current?.querySelector('.lyrics-line.active');
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  }, [currentTime, parsedLyrics, activeLyricsIndex]);
 
   // 4. Handle time update events
   const handleTimeUpdate = () => {
@@ -374,14 +299,6 @@ export default function AudioPlayer() {
           <Sparkles size={18} />
         </button>
 
-        <button
-          onClick={() => setIsLyricsOpen(!isLyricsOpen)}
-          className={`player-btn ${isLyricsOpen ? 'active' : ''}`}
-          title="Lyrics"
-          disabled={!currentSong}
-        >
-          <Languages size={18} />
-        </button>
 
         <button
           onClick={triggerDownload}
@@ -425,43 +342,6 @@ export default function AudioPlayer() {
         currentSong={currentSong}
       />
 
-      {/* 5. Lyrics Side Drawer Panel */}
-      <div className={`lyrics-overlay ${isLyricsOpen ? 'open' : ''}`}>
-        <div className="lyrics-header">
-          <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Song Lyrics</h3>
-          <button className="add-playlist-btn" onClick={() => setIsLyricsOpen(false)}>
-            <ChevronDown size={24} />
-          </button>
-        </div>
-
-        <div className="lyrics-body" ref={lyricsContainerRef}>
-          {loadingLyrics ? (
-            <div className="loader-container">
-              <div className="spinner"></div>
-              <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Searching Lyrics...</span>
-            </div>
-          ) : parsedLyrics.length > 0 ? (
-            parsedLyrics.map((line, idx) => (
-              <div
-                key={idx}
-                className={`lyrics-line ${idx === activeLyricsIndex ? 'active' : ''}`}
-              >
-                {line.text}
-              </div>
-            ))
-          ) : lyrics.plain ? (
-            lyrics.plain.split('\n').map((line, idx) => (
-              <div key={idx} className="lyrics-line" style={{ color: 'white', opacity: 0.9 }}>
-                {line}
-              </div>
-            ))
-          ) : (
-            <div style={{ color: 'var(--text-muted)', fontSize: '14px', padding: '40px 0' }}>
-              Lyrics not found for this song.
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* 6. Dynamic Cache Configuration Modal Overlay */}
       {showConfigModal && (

@@ -13,7 +13,6 @@ const songsRoutes = require('./modules/songs/songs.routes');
 const likedRoutes = require('./modules/liked/liked.routes');
 const playlistsRoutes = require('./modules/playlists/playlists.routes');
 const historyRoutes = require('./modules/history/history.routes');
-const lyricsRoutes = require('./modules/lyrics/lyrics.routes');
 const configRoutes = require('./modules/config/config.routes');
 
 const app = express();
@@ -37,7 +36,6 @@ app.use('/api', songsRoutes); // Mounts /api/search, /api/stream/:id, /api/downl
 app.use('/api/liked', likedRoutes);
 app.use('/api/playlists', playlistsRoutes);
 app.use('/api/history', historyRoutes);
-app.use('/api/lyrics', lyricsRoutes);
 app.use('/api/config', configRoutes);
 
 // Serve static frontend files in production or if dist build exists

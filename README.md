@@ -5,7 +5,7 @@
 [![Express](https://img.shields.io/badge/Backend-Express.js-yellow.svg)](https://expressjs.com/)
 [![Docker](https://img.shields.io/badge/Deployment-Docker-blue.svg)](https://www.docker.com/)
 
-**Survana V3** is a gorgeous, premium, and self-hosted music search and streaming web application. Bypassing standard CORS limitations, it utilizes a custom range-request proxy powered by `yt-dlp` to stream high-quality audio directly in your browser. Complete with interactive visualizers, offline synced lyrics, and a unique two-tier caching system, Survana V3 redefines the self-hosted audio experience.
+**Survana V3** is a gorgeous, premium, and self-hosted music search and streaming web application. Bypassing standard CORS limitations, it utilizes a custom range-request proxy powered by `yt-dlp` to stream high-quality audio directly in your browser. Complete with interactive visualizers and a unique dynamic caching system, Survana V3 redefines the self-hosted audio experience.
 
 ---
 
@@ -24,9 +24,6 @@
 *   **Server-Side Cache:** Automatically downloads and caches streamed songs in the background as `.webm` files inside the `/cache` directory, eliminating subsequent YouTube requests.
 *   **Local Directory Picker Cache (Offline mode):** Leverages the cutting-edge HTML5 **File System Access API** (`showDirectoryPicker`). You can pick a local folder on your computer once, and Survana will save downloaded `.mp3` tracks directly onto your physical drive. If permission is granted on load, it plays files directly from your hard drive, enabling complete offline capability!
 
-### 🎤 Synchronized Dynamic Lyrics
-*   **LRCLib Integration:** Automatically retrieves plain and synchronized lyrics (LRC format) via the `lrclib.net` API.
-*   **Scroll-to-Time:** Tracks audio playback down to the millisecond, automatically scrolling and highlighting active lyrics lines.
 
 ### 🌌 Interactive Live Audio Spectrum
 *   **Web Audio API Analyser:** Connects the browser's audio source into a canvas analyser node.
@@ -43,7 +40,7 @@
 *   **IndexedDB:** Persistently stores local folder handles so you only have to connect your music folder once.
 
 ### Backend
-*   **Node.js & Express:** Custom REST API endpoints (`/api/search`, `/api/stream/:id`, `/api/download/:id`, `/api/lyrics`, etc.).
+*   **Node.js & Express:** Custom REST API endpoints (`/api/search`, `/api/stream/:id`, `/api/download/:id`, etc.).
 *   **yt-dlp Core:** Leverages Python-based `yt_dlp` with Deno/Node runtimes to bypass YouTube's signature challenges.
 *   **Local File Database:** Lightweight JSON-based database (`playlists.json`, `liked.json`, `history.json`) for seamless portability.
 *   **Middlewares:** `helmet` (configured for cross-origin resources), `cors`, `morgan`, and global exception handers.
@@ -136,8 +133,6 @@ Docker completely automates the installation of Node.js, Python, FFmpeg, and **D
 *   `POST /api/playlists/:id/songs`: Adds a song to a playlist.
 *   `DELETE /api/playlists/:id`: Deletes a playlist.
 
-### Lyrics Module
-*   `GET /api/lyrics?title=<title>&artist=<artist>`: Fetches plain/synced lyrics from LRCLib.
 
 ---
 

@@ -23,7 +23,7 @@ export default function Home() {
         <div className="hero-content">
           <span className="hero-tag">Trending Audio</span>
           <h1 className="hero-headline">Chill Lofi Beats & Sleep Melodies</h1>
-          <p className="hero-desc">Bypass CORS limits and stream direct audio files with interactive visualizations, custom playlists, and offline lyrics.</p>
+          <p className="hero-desc">Bypass CORS limits and stream direct audio files with interactive visualizations and custom playlists.</p>
           <button className="hero-btn" onClick={() => handleShortcutClick('lofi chill')}>Listen Now</button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 1 }}>

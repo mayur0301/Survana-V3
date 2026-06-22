@@ -42,16 +42,11 @@ export default function Sidebar() {
 
   return (
     <aside className={`sidebar ${!isSidebarOpen ? 'collapsed' : ''}`}>
-      <Link to="/" className="logo-container" style={{ justifyContent: 'center', padding: '0 4px', display: 'flex', textDecoration: 'none' }}>
+      <Link to="/" className="logo-container">
         <img 
           src={isSidebarOpen ? bigLogo : smallLogo} 
           alt="Survana V3" 
-          style={{ 
-            width: '100%', 
-            maxHeight: '45px', 
-            objectFit: 'contain',
-            transition: 'all 0.3s'
-          }} 
+          className="logo-image"
         />
       </Link>
 

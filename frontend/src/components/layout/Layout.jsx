@@ -6,10 +6,10 @@ import AudioPlayer from '../player/AudioPlayer';
 import { useMusicPlayer } from '../../context/MusicPlayerContext';
 
 export default function Layout() {
-  const { isLyricsOpen, isSidebarOpen, setIsSidebarOpen } = useMusicPlayer();
+  const { isSidebarOpen, setIsSidebarOpen } = useMusicPlayer();
 
   return (
-    <div className={`app-container ${isLyricsOpen ? 'lyrics-open' : ''} ${!isSidebarOpen ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-container ${!isSidebarOpen ? 'sidebar-collapsed' : ''}`}>
       {/* Mobile Sidebar Drawer Backdrop */}
       {isSidebarOpen && (
         <div 
@@ -23,15 +23,17 @@ export default function Layout() {
 
       {/* 2. Main Content viewport */}
       <main className="main-content">
-        <Header />
+        <div className="main-scrollable-content">
+          <Header />
 
-        <div className="view-container">
-          <Outlet />
+          <div className="view-container">
+            <Outlet />
+          </div>
         </div>
-      </main>
 
-      {/* 3. Persistent Audio Player Bar */}
-      <AudioPlayer />
+        {/* 3. Persistent Audio Player Bar */}
+        <AudioPlayer />
+      </main>
     </div>
   );
 }
