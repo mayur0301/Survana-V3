@@ -1,33 +1,39 @@
-const { readDb, writeDb, FILES } = require('../../database');
+const Liked = require('../../database/models/Liked');
 
-const getLiked = (req, res, next) => {
+const getLiked = async (req, res, next) => {
   try {
-    const liked = readDb(FILES.LIKED_FILE);
+    const liked = await Liked.find().sort({ likedAt: -1 });
     res.json(liked);
   } catch (error) {
     next(error);
   }
 };
 
-const toggleLiked = (req, res, next) => {
+const toggleLiked = async (req, res, next) => {
   const song = req.body;
   if (!song || !song.id) {
     return res.status(400).json({ error: 'Invalid song details' });
   }
 
   try {
-    const liked = readDb(FILES.LIKED_FILE);
-    const index = liked.findIndex(item => item.id === song.id);
+    const existing = await Liked.findOne({ id: song.id });
     let isLiked = false;
 
-    if (index >= 0) {
-      liked.splice(index, 1);
+    if (existing) {
+      await Liked.deleteOne({ id: song.id });
     } else {
-      liked.unshift(song);
+      await Liked.create({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        duration: song.duration,
+        thumbnail: song.thumbnail,
+        likedAt: new Date()
+      });
       isLiked = true;
     }
 
-    writeDb(FILES.LIKED_FILE, liked);
+    const liked = await Liked.find().sort({ likedAt: -1 });
     res.json({ isLiked, liked });
   } catch (error) {
     next(error);

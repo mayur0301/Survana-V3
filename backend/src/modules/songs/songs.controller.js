@@ -1,5 +1,5 @@
 const { searchSongs, streamAudio, downloadAudio } = require('../../utils/yt-dlp-helper');
-const { readDb, writeDb, FILES } = require('../../database');
+const History = require('../../database/models/History');
 
 const search = async (req, res, next) => {
   const query = req.query.q;
@@ -28,19 +28,25 @@ const stream = async (req, res, next) => {
     const songDuration = parseInt(req.query.duration) || 0;
     const songThumbnail = req.query.thumbnail || '';
     
-    let history = readDb(FILES.HISTORY_FILE);
     // Remove if already exists to push it to the top
-    history = history.filter(song => song.id !== id);
-    history.unshift({
+    await History.deleteOne({ id });
+    await History.create({
       id,
       title: songTitle,
       artist: songArtist,
       duration: songDuration,
       thumbnail: songThumbnail,
-      playedAt: new Date().toISOString()
+      playedAt: new Date()
     });
+    
     // Limit to 50 items
-    writeDb(FILES.HISTORY_FILE, history.slice(0, 50));
+    const count = await History.countDocuments();
+    if (count > 50) {
+      const oldestToKeep = await History.find().sort({ playedAt: -1 }).skip(49).limit(1);
+      if (oldestToKeep.length > 0) {
+        await History.deleteMany({ playedAt: { $lt: oldestToKeep[0].playedAt } });
+      }
+    }
   } catch (err) {
     console.error('Failed to update history:', err.message);
   }

@@ -11,6 +11,7 @@ module.exports = {
     LIKED_FILE: path.join(__dirname, '..', 'database', 'liked.json'),
     HISTORY_FILE: path.join(__dirname, '..', 'database', 'history.json')
   },
+  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/survana-v3',
   CACHE_DIR: path.join(ROOT_DIR, 'cache'),
   COOKIES_BROWSER: process.env.YT_DLP_COOKIES_BROWSER,
   YT_DLP_COOKIES_TEXT: process.env.YT_DLP_COOKIES_TEXT

@@ -1,48 +1,50 @@
-const { readDb, writeDb, FILES } = require('../../database');
+const Playlist = require('../../database/models/Playlist');
 
-const getPlaylists = (req, res, next) => {
+const getPlaylists = async (req, res, next) => {
   try {
-    const playlists = readDb(FILES.PLAYLISTS_FILE);
-    res.json(playlists);
+    const playlists = await Playlist.find();
+    res.json(playlists.map(pl => ({
+      id: pl._id.toString(),
+      name: pl.name,
+      songs: pl.songs
+    })));
   } catch (error) {
     next(error);
   }
 };
 
-const createPlaylist = (req, res, next) => {
+const createPlaylist = async (req, res, next) => {
   const { name } = req.body;
   if (!name || name.trim() === '') {
     return res.status(400).json({ error: 'Playlist name is required' });
   }
 
   try {
-    const playlists = readDb(FILES.PLAYLISTS_FILE);
-    const newPlaylist = {
-      id: `pl-${Date.now()}`,
+    const newPlaylist = await Playlist.create({
       name: name.trim(),
       songs: []
-    };
-    playlists.push(newPlaylist);
-    writeDb(FILES.PLAYLISTS_FILE, playlists);
-    res.json(newPlaylist);
+    });
+    res.json({
+      id: newPlaylist._id.toString(),
+      name: newPlaylist.name,
+      songs: newPlaylist.songs
+    });
   } catch (error) {
     next(error);
   }
 };
 
-const deletePlaylist = (req, res, next) => {
+const deletePlaylist = async (req, res, next) => {
   const { id } = req.params;
   try {
-    let playlists = readDb(FILES.PLAYLISTS_FILE);
-    playlists = playlists.filter(pl => pl.id !== id);
-    writeDb(FILES.PLAYLISTS_FILE, playlists);
+    await Playlist.findByIdAndDelete(id);
     res.json({ success: true });
   } catch (error) {
     next(error);
   }
 };
 
-const addSong = (req, res, next) => {
+const addSong = async (req, res, next) => {
   const { id } = req.params;
   const song = req.body;
   if (!song || !song.id) {
@@ -50,8 +52,7 @@ const addSong = (req, res, next) => {
   }
 
   try {
-    const playlists = readDb(FILES.PLAYLISTS_FILE);
-    const playlist = playlists.find(pl => pl.id === id);
+    const playlist = await Playlist.findById(id);
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
@@ -59,26 +60,35 @@ const addSong = (req, res, next) => {
     // Add if not already present
     if (!playlist.songs.some(s => s.id === song.id)) {
       playlist.songs.push(song);
-      writeDb(FILES.PLAYLISTS_FILE, playlists);
+      await playlist.save();
     }
-    res.json(playlist);
+    
+    res.json({
+      id: playlist._id.toString(),
+      name: playlist.name,
+      songs: playlist.songs
+    });
   } catch (error) {
     next(error);
   }
 };
 
-const removeSong = (req, res, next) => {
+const removeSong = async (req, res, next) => {
   const { id, songId } = req.params;
   try {
-    const playlists = readDb(FILES.PLAYLISTS_FILE);
-    const playlist = playlists.find(pl => pl.id === id);
+    const playlist = await Playlist.findById(id);
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
     playlist.songs = playlist.songs.filter(s => s.id !== songId);
-    writeDb(FILES.PLAYLISTS_FILE, playlists);
-    res.json(playlist);
+    await playlist.save();
+
+    res.json({
+      id: playlist._id.toString(),
+      name: playlist.name,
+      songs: playlist.songs
+    });
   } catch (error) {
     next(error);
   }

@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
+const connectDB = require('./database/mongodb');
 const { errorHandler } = require('./middleware');
 
 // Route Imports
@@ -15,6 +16,9 @@ const historyRoutes = require('./modules/history/history.routes');
 const lyricsRoutes = require('./modules/lyrics/lyrics.routes');
 
 const app = express();
+
+// Connect to MongoDB
+connectDB();
 
 // Standard Middlewares
 app.use(helmet({
