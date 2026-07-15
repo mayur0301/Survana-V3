@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Volume2, VolumeX, Sparkles, Download, FolderOpen } from 'lucide-react';
 import { useMusicPlayer } from '../../context/MusicPlayerContext';
 import Visualizer from './Visualizer';
@@ -331,8 +332,15 @@ export default function AudioPlayer() {
       />
 
       {/* 6. Dynamic Cache Configuration Modal Overlay */}
-      {showConfigModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[10000] flex items-center justify-center p-4 animate-fade-in">
+      {showConfigModal && createPortal(
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget && isConfigured) {
+              setShowConfigModal(false);
+            }
+          }}
+          className="fixed inset-0 bg-black/70 backdrop-blur-md z-[10000] flex items-center justify-center p-4 animate-fade-in"
+        >
           <div className="bg-bg-secondary border border-border-glass rounded-3xl p-6 md:p-8 max-w-md w-full shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-scale-up">
             <h3 className="text-xl font-extrabold text-white mb-2">Configure Cache Location</h3>
             <p className="text-xs leading-relaxed text-zinc-400 mb-6">
@@ -366,7 +374,8 @@ export default function AudioPlayer() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </footer>
   );
