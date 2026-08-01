@@ -14,6 +14,7 @@ const likedRoutes = require('./modules/liked/liked.routes');
 const playlistsRoutes = require('./modules/playlists/playlists.routes');
 const historyRoutes = require('./modules/history/history.routes');
 const configRoutes = require('./modules/config/config.routes');
+const debugRoutes = require('./modules/debug/debug.routes');
 
 const app = express();
 
@@ -31,12 +32,21 @@ app.use(cors({
 app.use(morgan('dev'));
 app.use(express.json());
 
+// Correlation ID Middleware
+app.use((req, res, next) => {
+  const correlationId = req.headers['x-correlation-id'] || req.headers['x-request-id'] || `corr-${Math.random().toString(36).substring(2, 11)}`;
+  req.correlationId = correlationId;
+  res.setHeader('x-correlation-id', correlationId);
+  next();
+});
+
 // API Routes Mounting
 app.use('/api', songsRoutes); // Mounts /api/search, /api/stream/:id, /api/download/:id
 app.use('/api/liked', likedRoutes);
 app.use('/api/playlists', playlistsRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/debug', debugRoutes);
 
 // Serve static frontend files in production or if dist build exists
 const distPath = path.join(__dirname, '../../frontend/dist');

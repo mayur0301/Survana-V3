@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { Readable } = require('stream');
+const os = require('os');
 const config = require('../config');
 const { getCacheDir } = require('../database/settings');
 
@@ -9,6 +10,238 @@ const { getCacheDir } = require('../database/settings');
 const activeDownloads = new Set();
 
 const COOKIES_BROWSER = config.COOKIES_BROWSER;
+
+let systemInfoCache = null;
+
+// Redacts credentials, tokens, cookies, and other secrets from arguments and strings
+function redactSensitiveInfo(textOrArgs) {
+  if (!textOrArgs) return textOrArgs;
+  
+  const sensitiveKeywords = ['key', 'secret', 'pass', 'token', 'cookie', 'auth', 'password'];
+  
+  if (Array.isArray(textOrArgs)) {
+    return textOrArgs.map((arg, idx) => {
+      const hasSensitiveKeyword = sensitiveKeywords.some(keyword => arg.toLowerCase().includes(keyword));
+      
+      // Redact the file path or browser setting if it follows a cookie argument
+      if (idx > 0 && (textOrArgs[idx - 1] === '--cookies' || textOrArgs[idx - 1] === '--cookies-from-browser')) {
+        return '[REDACTED_SENSITIVE_PATH_OR_BROWSER]';
+      }
+      
+      if (hasSensitiveKeyword) {
+        // Redact credentials in URLs
+        return arg.replace(/(https?:\/\/)([^:]+):([^@]+)(@)/g, '$1[REDACTED_USER]:[REDACTED_PASS]$4');
+      }
+      
+      return arg;
+    });
+  }
+
+  if (typeof textOrArgs === 'string') {
+    let redacted = textOrArgs.replace(/(https?:\/\/)([^:]+):([^@]+)(@)/g, '$1[REDACTED_USER]:[REDACTED_PASS]$4');
+    
+    const lines = redacted.split('\n');
+    const cleanedLines = lines.map(line => {
+      const lowerLine = line.toLowerCase();
+      const isSensitiveLine = sensitiveKeywords.some(keyword => {
+        return lowerLine.includes(keyword) && (lowerLine.includes('=') || lowerLine.includes(':') || lowerLine.includes('bearer') || lowerLine.includes('basic'));
+      });
+      return isSensitiveLine ? `[REDACTED SENSITIVE LINE]` : line;
+    });
+    return cleanedLines.join('\n');
+  }
+
+  return textOrArgs;
+}
+
+// Queries python, yt-dlp, and ffmpeg versions once on boot
+async function getSystemInfo() {
+  if (systemInfoCache) return systemInfoCache;
+
+  const info = {
+    os: `${os.type()} ${os.release()} (${os.platform()})`,
+    nodeVersion: process.version,
+    pythonVersion: 'unknown',
+    ytdlpVersion: 'unknown',
+    ffmpegVersion: 'unknown'
+  };
+
+  const runVerCommand = (cmd, args) => {
+    return new Promise((resolve) => {
+      const child = spawn(cmd, args);
+      let output = '';
+      child.stdout.on('data', (d) => output += d.toString());
+      child.stderr.on('data', (d) => output += d.toString());
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve(output.trim().split('\n')[0]);
+        } else {
+          resolve(`not found (exit code ${code})`);
+        }
+      });
+      child.on('error', () => {
+        resolve('not installed');
+      });
+    });
+  };
+
+  // Check Python
+  let pythonRes = await runVerCommand('python', ['--version']);
+  if (pythonRes.includes('not installed') || pythonRes.includes('not found')) {
+    pythonRes = await runVerCommand('python3', ['--version']);
+  }
+  info.pythonVersion = pythonRes;
+
+  // Check yt-dlp
+  let ytdlpRes = await runVerCommand('python', ['-m', 'yt_dlp', '--version']);
+  if (ytdlpRes.includes('not installed') || ytdlpRes.includes('not found')) {
+    ytdlpRes = await runVerCommand('yt-dlp', ['--version']);
+  }
+  info.ytdlpVersion = ytdlpRes;
+
+  // Check ffmpeg
+  info.ffmpegVersion = await runVerCommand('ffmpeg', ['-version']);
+
+  systemInfoCache = info;
+  return info;
+}
+
+// Centralized yt-dlp spawn executor with telemetry and safety scrubbing
+function runYtDlp(args, metadata = {}) {
+  return new Promise(async (resolve, reject) => {
+    const sysInfo = await getSystemInfo();
+    const correlationId = metadata.correlationId || `corr-${Math.random().toString(36).substring(2, 11)}`;
+    const requestId = metadata.requestId || 'N/A';
+    const videoId = metadata.videoId || 'N/A';
+    const action = metadata.action || 'run';
+    const isDebug = process.env.DEBUG_YTDLP === 'true';
+
+    const startTime = Date.now();
+    const memoryBefore = process.memoryUsage();
+
+    const logPayload = {
+      logType: 'YT_DLP_TRACE',
+      timestamp: new Date().toISOString(),
+      correlationId,
+      requestId,
+      videoId,
+      action,
+      stage: 'initiation',
+      elapsedTimeMs: 0,
+      system: {
+        platform: process.platform,
+        cwd: process.cwd(),
+        nodeVersion: sysInfo.nodeVersion,
+        pythonVersion: sysInfo.pythonVersion,
+        ytdlpVersion: sysInfo.ytdlpVersion,
+        ffmpegVersion: sysInfo.ffmpegVersion
+      },
+      configuration: {
+        command: 'python',
+        args: redactSensitiveInfo(args),
+        cookiesUsed: args.includes('--cookies') || args.includes('--cookies-from-browser'),
+        cookiesFileExists: false,
+        proxyUsed: args.some(arg => arg.startsWith('--proxy')) || !!process.env.HTTP_PROXY || !!process.env.HTTPS_PROXY,
+        authOptionsUsed: args.some(arg => arg.startsWith('--username') || arg.startsWith('--password') || arg.startsWith('--netrc'))
+      }
+    };
+
+    // Check files existence (e.g. cookies files) if referenced in args
+    const cookiesIndex = args.indexOf('--cookies');
+    if (cookiesIndex !== -1 && cookiesIndex + 1 < args.length) {
+      const cookiesPath = args[cookiesIndex + 1];
+      logPayload.configuration.cookiesFileExists = fs.existsSync(cookiesPath);
+    }
+
+    if (isDebug) {
+      logPayload.system.memoryBefore = {
+        rss: Math.round(memoryBefore.rss / 1024 / 1024) + ' MB',
+        heapTotal: Math.round(memoryBefore.heapTotal / 1024 / 1024) + ' MB',
+        heapUsed: Math.round(memoryBefore.heapUsed / 1024 / 1024) + ' MB'
+      };
+      console.log(`[DEBUG] [${correlationId}] Spawn options:`, JSON.stringify(logPayload, null, 2));
+    }
+
+    logPayload.stage = 'spawning';
+    const child = spawn('python', args);
+
+    let stdoutData = '';
+    let stderrData = '';
+
+    child.on('error', (err) => {
+      const endTime = Date.now();
+      const memoryAfter = process.memoryUsage();
+      
+      logPayload.stage = 'spawn_error';
+      logPayload.elapsedTimeMs = endTime - startTime;
+      logPayload.result = {
+        success: false,
+        exitCode: null,
+        signal: null,
+        error: err.message,
+        stack: err.stack
+      };
+
+      if (isDebug) {
+        logPayload.system.memoryAfter = {
+          rss: Math.round(memoryAfter.rss / 1024 / 1024) + ' MB',
+          heapTotal: Math.round(memoryAfter.heapTotal / 1024 / 1024) + ' MB',
+          heapUsed: Math.round(memoryAfter.heapUsed / 1024 / 1024) + ' MB'
+        };
+      }
+
+      console.error(`[ERROR] [${correlationId}] yt-dlp spawn failed:`, JSON.stringify(logPayload, null, 2));
+      reject(err);
+    });
+
+    child.stdout.on('data', (data) => {
+      stdoutData += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderrData += data.toString();
+    });
+
+    child.on('close', (code, signal) => {
+      const endTime = Date.now();
+      const memoryAfter = process.memoryUsage();
+      
+      logPayload.stage = 'completion';
+      logPayload.elapsedTimeMs = endTime - startTime;
+      
+      const redactedStdout = redactSensitiveInfo(stdoutData);
+      const redactedStderr = redactSensitiveInfo(stderrData);
+
+      logPayload.result = {
+        success: code === 0,
+        exitCode: code,
+        signal,
+        stdoutLength: redactedStdout.length,
+        stderrLength: redactedStderr.length
+      };
+
+      if (isDebug || code !== 0) {
+        logPayload.result.stdout = redactedStdout;
+        logPayload.result.stderr = redactedStderr;
+        if (isDebug) {
+          logPayload.system.memoryAfter = {
+            rss: Math.round(memoryAfter.rss / 1024 / 1024) + ' MB',
+            heapTotal: Math.round(memoryAfter.heapTotal / 1024 / 1024) + ' MB',
+            heapUsed: Math.round(memoryAfter.heapUsed / 1024 / 1024) + ' MB'
+          };
+        }
+      }
+
+      if (code !== 0) {
+        console.error(`[ERROR] [${correlationId}] yt-dlp failed with code ${code}:`, JSON.stringify(logPayload, null, 2));
+        reject(new Error(`yt-dlp execution failed with exit code ${code}. Stderr: ${redactedStderr}`));
+      } else {
+        console.log(`[INFO] [${correlationId}] yt-dlp completed successfully:`, JSON.stringify(logPayload, null, 2));
+        resolve(stdoutData);
+      }
+    });
+  });
+}
 
 /**
  * Builds the array of arguments for yt-dlp.
@@ -60,8 +293,8 @@ function prepareYtDlpArgs(customArgs, useCookies = true) {
 /**
  * Run yt-dlp search and return formatted song entries
  */
-function searchSongs(query) {
-  return new Promise((resolve, reject) => {
+function searchSongs(query, correlationId) {
+  return new Promise(async (resolve, reject) => {
     const limit = 15;
     const searchQuery = `ytsearch${limit}:${query}`;
     
@@ -72,24 +305,12 @@ function searchSongs(query) {
       '--skip-download'
     ], false);
 
-    const child = spawn('python', args);
-
-    let stdoutData = '';
-    let stderrData = '';
-
-    child.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderrData += data.toString();
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0 && stdoutData.trim() === '') {
-        console.error(`yt-dlp search failed with code ${code}: ${stderrData}`);
-        return reject(new Error(`Search failed: ${stderrData}`));
-      }
+    try {
+      const stdoutData = await runYtDlp(args, {
+        action: 'searchSongs',
+        correlationId,
+        query
+      });
 
       const results = [];
       const lines = stdoutData.split('\n');
@@ -120,43 +341,32 @@ function searchSongs(query) {
       }
 
       resolve(results);
-    });
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
 /**
  * Calls yt-dlp to extract the direct media stream URL
  */
-function getStreamUrl(videoId) {
-  const runYtDlp = (useCookies) => {
-    return new Promise((resolve, reject) => {
-      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const args = prepareYtDlpArgs(['-g', '-f', 'bestaudio/best', youtubeUrl], useCookies);
-      
-      const child = spawn('python', args);
-      let stdoutData = '';
-      let stderrData = '';
-
-      child.stdout.on('data', (data) => {
-        stdoutData += data.toString();
-      });
-      child.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-
-      child.on('close', (code) => {
-        if (code !== 0) {
-          return reject(new Error(stderrData || `Exit code ${code}`));
-        }
-        resolve(stdoutData.trim());
-      });
+function getStreamUrl(videoId, correlationId) {
+  const runYtDlpWrapper = async (useCookies) => {
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const args = prepareYtDlpArgs(['-g', '-f', 'bestaudio/best', youtubeUrl], useCookies);
+    
+    const stdoutData = await runYtDlp(args, {
+      action: `getStreamUrl${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
+      correlationId,
+      videoId
     });
+    return stdoutData.trim();
   };
 
   // Try with cookies first, fallback to without cookies if it fails
-  return runYtDlp(true).catch((err) => {
-    console.warn(`[yt-dlp] Failed resolving stream with cookies, retrying without:`, err.message);
-    return runYtDlp(false);
+  return runYtDlpWrapper(true).catch((err) => {
+    console.warn(`[yt-dlp] [${correlationId}] Failed resolving stream with cookies, retrying without:`, err.message);
+    return runYtDlpWrapper(false);
   });
 }
 
@@ -202,22 +412,24 @@ async function lookupSongTitleInDb(videoId) {
 }
 
 // Fetch title via yt-dlp metadata
-function getVideoTitle(videoId) {
-  return new Promise((resolve, reject) => {
+function getVideoTitle(videoId, correlationId) {
+  return new Promise(async (resolve, reject) => {
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const args = prepareYtDlpArgs(['--get-title', youtubeUrl], false);
-    const child = spawn('python', args);
-    let stdoutData = '';
-    child.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-    child.on('close', (code) => {
-      if (code === 0 && stdoutData.trim()) {
+    try {
+      const stdoutData = await runYtDlp(args, {
+        action: 'getVideoTitle',
+        correlationId,
+        videoId
+      });
+      if (stdoutData.trim()) {
         resolve(stdoutData.trim());
       } else {
         reject(new Error(`Failed to get title for ${videoId}`));
       }
-    });
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -266,7 +478,7 @@ async function renameCachedFiles() {
 /**
  * Downloads a track fully to the cache directory in the background
  */
-async function downloadToCache(videoId) {
+async function downloadToCache(videoId, correlationId) {
   const cacheDir = await getCacheDir();
   const existingFile = await findCachedFile(cacheDir, videoId);
   
@@ -275,42 +487,30 @@ async function downloadToCache(videoId) {
   }
 
   activeDownloads.add(videoId);
-  console.log(`[Background Cache] Starting download for ${videoId}...`);
+  console.log(`[Background Cache] [${correlationId || 'N/A'}] Starting download for ${videoId}...`);
 
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
-  const runDownload = (useCookies) => {
-    return new Promise((resolve, reject) => {
-      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
-      
-      const ytdlp = spawn('python', args);
-      let stderrData = '';
-      
-      ytdlp.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-      
-      ytdlp.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(stderrData || `Exit code ${code}`));
-        }
-      });
+  const runDownloadWrapper = async (useCookies) => {
+    const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
+    await runYtDlp(args, {
+      action: `downloadToCache${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
+      correlationId,
+      videoId
     });
   };
 
-  runDownload(true)
+  runDownloadWrapper(true)
     .catch((err) => {
-      console.warn(`[Background Cache] Failed with cookies, retrying without cookies:`, err.message);
-      return runDownload(false);
+      console.warn(`[Background Cache] [${correlationId || 'N/A'}] Failed with cookies, retrying without cookies:`, err.message);
+      return runDownloadWrapper(false);
     })
     .then(() => {
-      console.log(`[Background Cache] Finished caching ${videoId} successfully.`);
+      console.log(`[Background Cache] [${correlationId || 'N/A'}] Finished caching ${videoId} successfully.`);
     })
     .catch(async (err) => {
-      console.error(`[Background Cache] Failed caching ${videoId} completely:`, err.message);
+      console.error(`[Background Cache] [${correlationId || 'N/A'}] Failed caching ${videoId} completely:`, err.message);
       // Cleanup incomplete file if any
       const failedFile = await findCachedFile(cacheDir, videoId);
       if (failedFile && fs.existsSync(failedFile)) {
@@ -328,22 +528,23 @@ async function downloadToCache(videoId) {
  * to support smooth seeking/scrubbing for uncached files.
  */
 async function streamAudio(videoId, req, res) {
+  const correlationId = req.correlationId || `corr-${Math.random().toString(36).substring(2, 11)}`;
   const cacheDir = await getCacheDir();
   const cachedPath = await findCachedFile(cacheDir, videoId);
 
   // 1. If cache exists, serve it directly.
   // Express res.sendFile automatically handles HTTP Range requests and seeking.
   if (cachedPath) {
-    console.log(`[Cache Hit] Serving ${videoId} from local cache: ${path.basename(cachedPath)}`);
+    console.log(`[Cache Hit] [${correlationId}] Serving ${videoId} from local cache: ${path.basename(cachedPath)}`);
     res.setHeader('Content-Type', 'audio/webm');
     return res.sendFile(cachedPath);
   }
 
   // 2. If not cached, resolve stream URL and proxy it while forwarding range headers
-  console.log(`[Cache Miss] Streaming ${videoId} via range proxy.`);
+  console.log(`[Cache Miss] [${correlationId}] Streaming ${videoId} via range proxy.`);
   
   try {
-    const streamUrl = await getStreamUrl(videoId);
+    const streamUrl = await getStreamUrl(videoId, correlationId);
     
     // Set headers for range request forwarding
     const rangeHeader = req.headers.range || 'bytes=0-';
@@ -356,7 +557,7 @@ async function streamAudio(videoId, req, res) {
     });
 
     if (!response.ok && response.status !== 206) {
-      console.error(`Proxy request to Google Video failed with status ${response.status}`);
+      console.error(`[Streaming Proxy Error] [${correlationId}] Proxy request to Google Video failed with status ${response.status}`);
       return res.status(response.status || 500).send('Error streaming from YouTube source');
     }
 
@@ -386,10 +587,10 @@ async function streamAudio(videoId, req, res) {
     });
 
     // Start background download to cache this track for subsequent plays
-    downloadToCache(videoId);
+    downloadToCache(videoId, correlationId);
 
   } catch (error) {
-    console.error(`[Streaming Proxy Error] for video ${videoId}:`, error.message);
+    console.error(`[Streaming Proxy Error] [${correlationId}] for video ${videoId}:`, error.message);
     if (!res.headersSent) {
       res.status(500).send('Failed to fetch media stream from source');
     }
@@ -399,14 +600,14 @@ async function streamAudio(videoId, req, res) {
 /**
  * Downloads audio file and serves it as a browser attachment
  */
-async function downloadAudio(videoId, res) {
+async function downloadAudio(videoId, res, correlationId) {
   const cacheDir = await getCacheDir();
   const cachedPath = await findCachedFile(cacheDir, videoId);
   
   const triggerDownload = (filePath, fileName) => {
     res.download(filePath, fileName, (err) => {
       if (err) {
-        console.error('Error during file download:', err);
+        console.error(`[Download Error] [${correlationId || 'N/A'}] during file download:`, err);
         if (!res.headersSent) {
           res.status(500).send('Download failed');
         }
@@ -418,47 +619,35 @@ async function downloadAudio(videoId, res) {
     return triggerDownload(cachedPath, path.basename(cachedPath));
   }
 
-  console.log(`[Download] Downloading ${videoId} to serve...`);
+  console.log(`[Download] [${correlationId || 'N/A'}] Downloading ${videoId} to serve...`);
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
-  const runDownload = (useCookies) => {
-    return new Promise((resolve, reject) => {
-      const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
-      
-      const ytdlp = spawn('python', args);
-      let stderrData = '';
-      
-      ytdlp.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-      
-      ytdlp.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(stderrData || `Exit code ${code}`));
-        }
-      });
+  const runDownloadWrapper = async (useCookies) => {
+    const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
+    await runYtDlp(args, {
+      action: `downloadAudio${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
+      correlationId,
+      videoId
     });
   };
 
-  runDownload(true)
+  runDownloadWrapper(true)
     .catch((err) => {
-      console.warn(`[Download] Failed with cookies, retrying without:`, err.message);
-      return runDownload(false);
+      console.warn(`[Download] [${correlationId || 'N/A'}] Failed with cookies, retrying without:`, err.message);
+      return runDownloadWrapper(false);
     })
     .then(async () => {
       const newCachedPath = await findCachedFile(cacheDir, videoId);
       if (newCachedPath) {
-        console.log(`[Download Success] Saved to ${newCachedPath}`);
+        console.log(`[Download Success] [${correlationId || 'N/A'}] Saved to ${newCachedPath}`);
         triggerDownload(newCachedPath, path.basename(newCachedPath));
       } else {
         throw new Error('Downloaded file not found in cache');
       }
     })
     .catch((err) => {
-      console.error(`[Download Error] Failed completely:`, err.message);
+      console.error(`[Download Error] [${correlationId || 'N/A'}] Failed completely:`, err.message);
       if (!res.headersSent) {
         res.status(500).send('Failed to download audio track');
       }

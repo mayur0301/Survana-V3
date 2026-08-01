@@ -7,8 +7,10 @@ const search = async (req, res, next) => {
     return res.status(400).json({ error: 'Search query is required' });
   }
 
+  const correlationId = req.correlationId;
+
   try {
-    const results = await searchSongs(query);
+    const results = await searchSongs(query, correlationId);
     res.json(results);
   } catch (error) {
     next(error);
@@ -60,7 +62,8 @@ const download = (req, res) => {
   if (!id) {
     return res.status(400).json({ error: 'Video ID is required' });
   }
-  downloadAudio(id, res);
+  const correlationId = req.correlationId;
+  downloadAudio(id, res, correlationId);
 };
 
 module.exports = {
