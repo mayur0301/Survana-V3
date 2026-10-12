@@ -9,8 +9,6 @@ const { getCacheDir } = require('../database/settings');
 // Track active background downloads to prevent duplicate processes
 const activeDownloads = new Set();
 
-const COOKIES_BROWSER = config.COOKIES_BROWSER;
-
 let systemInfoCache = null;
 
 // Redacts credentials, tokens, cookies, and other secrets from arguments and strings
@@ -139,19 +137,12 @@ function runYtDlp(args, metadata = {}) {
       configuration: {
         command: 'python',
         args: redactSensitiveInfo(args),
-        cookiesUsed: args.includes('--cookies') || args.includes('--cookies-from-browser'),
+        cookiesUsed: false,
         cookiesFileExists: false,
         proxyUsed: args.some(arg => arg.startsWith('--proxy')) || !!process.env.HTTP_PROXY || !!process.env.HTTPS_PROXY,
         authOptionsUsed: args.some(arg => arg.startsWith('--username') || arg.startsWith('--password') || arg.startsWith('--netrc'))
       }
     };
-
-    // Check files existence (e.g. cookies files) if referenced in args
-    const cookiesIndex = args.indexOf('--cookies');
-    if (cookiesIndex !== -1 && cookiesIndex + 1 < args.length) {
-      const cookiesPath = args[cookiesIndex + 1];
-      logPayload.configuration.cookiesFileExists = fs.existsSync(cookiesPath);
-    }
 
     if (isDebug) {
       logPayload.system.memoryBefore = {
@@ -245,47 +236,14 @@ function runYtDlp(args, metadata = {}) {
 
 /**
  * Builds the array of arguments for yt-dlp.
- * Always configures the JavaScript runtime and optionally configures cookies.
+ * Configures the JavaScript runtime for challenge solving.
  */
-function prepareYtDlpArgs(customArgs, useCookies = true) {
+function prepareYtDlpArgs(customArgs) {
   let args = ['-m', 'yt_dlp', '--no-update', ...customArgs];
 
-  // 1. Explicitly enable Deno and Node.js as the JavaScript runtimes for challenge/signature solving.
-  // We prioritize Deno (installed in Docker) and fall back to the running Node binary.
+  // Explicitly enable Deno and Node.js as the JavaScript runtimes for challenge/signature solving.
   args.push('--js-runtimes', 'deno');
   args.push('--js-runtimes', `node:${process.execPath}`);
-
-  // 2. Add cookies if requested
-  if (useCookies) {
-    // A. Check if cookies text is provided via Environment Variable (safest for Render)
-    if (config.YT_DLP_COOKIES_TEXT) {
-      const tempCookiesPath = path.join(__dirname, 'temp-cookies.txt');
-      try {
-        if (!fs.existsSync(tempCookiesPath) || fs.readFileSync(tempCookiesPath, 'utf8') !== config.YT_DLP_COOKIES_TEXT) {
-          fs.writeFileSync(tempCookiesPath, config.YT_DLP_COOKIES_TEXT, 'utf8');
-        }
-        args.push('--cookies', tempCookiesPath);
-        return args;
-      } catch (e) {
-        console.error('Failed to write temp-cookies.txt from YT_DLP_COOKIES_TEXT env variable:', e.message);
-      }
-    }
-
-    // B. Check if a local cookies.txt file exists in backend/ or root directory
-    const localCookiesPath = path.join(__dirname, '..', '..', 'cookies.txt');
-    const rootCookiesPath = path.join(__dirname, '..', '..', '..', 'cookies.txt');
-
-    if (fs.existsSync(localCookiesPath)) {
-      args.push('--cookies', localCookiesPath);
-    } else if (fs.existsSync(rootCookiesPath)) {
-      args.push('--cookies', rootCookiesPath);
-    } else {
-      // C. Fallback to browser cookies only in non-production environments if explicitly specified
-      if (config.NODE_ENV !== 'production' && COOKIES_BROWSER) {
-        args.push('--cookies-from-browser', COOKIES_BROWSER);
-      }
-    }
-  }
 
   return args;
 }
@@ -303,7 +261,7 @@ function searchSongs(query, correlationId) {
       '--flat-playlist',
       '--dump-json',
       '--skip-download'
-    ], false);
+    ]);
 
     try {
       const stdoutData = await runYtDlp(args, {
@@ -347,28 +305,7 @@ function searchSongs(query, correlationId) {
   });
 }
 
-/**
- * Calls yt-dlp to extract the direct media stream URL
- */
-function getStreamUrl(videoId, correlationId) {
-  const runYtDlpWrapper = async (useCookies) => {
-    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const args = prepareYtDlpArgs(['-g', '-f', 'bestaudio/best', youtubeUrl], useCookies);
-    
-    const stdoutData = await runYtDlp(args, {
-      action: `getStreamUrl${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
-      correlationId,
-      videoId
-    });
-    return stdoutData.trim();
-  };
 
-  // Try with cookies first, fallback to without cookies if it fails
-  return runYtDlpWrapper(true).catch((err) => {
-    console.warn(`[yt-dlp] [${correlationId}] Failed resolving stream with cookies, retrying without:`, err.message);
-    return runYtDlpWrapper(false);
-  });
-}
 
 // Sanitizes title to be safe for Windows and Linux/macOS filenames
 function sanitizeFilename(name) {
@@ -492,25 +429,18 @@ async function downloadToCache(videoId, correlationId) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
-  const runDownloadWrapper = async (useCookies) => {
-    const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
-    await runYtDlp(args, {
-      action: `downloadToCache${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
-      correlationId,
-      videoId
-    });
-  };
+  const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, '--no-playlist', youtubeUrl]);
 
-  runDownloadWrapper(true)
-    .catch((err) => {
-      console.warn(`[Background Cache] [${correlationId || 'N/A'}] Failed with cookies, retrying without cookies:`, err.message);
-      return runDownloadWrapper(false);
-    })
+  runYtDlp(args, {
+    action: 'downloadToCache',
+    correlationId,
+    videoId
+  })
     .then(() => {
       console.log(`[Background Cache] [${correlationId || 'N/A'}] Finished caching ${videoId} successfully.`);
     })
     .catch(async (err) => {
-      console.error(`[Background Cache] [${correlationId || 'N/A'}] Failed caching ${videoId} completely:`, err.message);
+      console.error(`[Background Cache] [${correlationId || 'N/A'}] Failed caching ${videoId}:`, err.message);
       // Cleanup incomplete file if any
       const failedFile = await findCachedFile(cacheDir, videoId);
       if (failedFile && fs.existsSync(failedFile)) {
@@ -524,8 +454,8 @@ async function downloadToCache(videoId, correlationId) {
 
 /**
  * Streams audio from YouTube or local cache.
- * Proxies the YouTube direct URL and forwards the browser's HTTP Range headers
- * to support smooth seeking/scrubbing for uncached files.
+ * If cached, serves file directly.
+ * If not cached, streams directly from yt-dlp stdout to the response.
  */
 async function streamAudio(videoId, req, res) {
   const correlationId = req.correlationId || `corr-${Math.random().toString(36).substring(2, 11)}`;
@@ -540,57 +470,50 @@ async function streamAudio(videoId, req, res) {
     return res.sendFile(cachedPath);
   }
 
-  // 2. If not cached, resolve stream URL and proxy it while forwarding range headers
-  console.log(`[Cache Miss] [${correlationId}] Streaming ${videoId} via range proxy.`);
-  
+  // 2. If not cached, stream directly via yt-dlp stdout
+  console.log(`[Cache Miss] [${correlationId}] Streaming ${videoId} directly via yt-dlp.`);
+
   try {
-    const streamUrl = await getStreamUrl(videoId, correlationId);
-    
-    // Set headers for range request forwarding
-    const rangeHeader = req.headers.range || 'bytes=0-';
-    
-    const response = await fetch(streamUrl, {
-      headers: {
-        'Range': rangeHeader,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const args = prepareYtDlpArgs([
+      '--no-progress',
+      '-f', 'bestaudio',
+      '-o', '-',
+      '--no-playlist',
+      youtubeUrl
+    ]);
+
+    res.setHeader('Content-Type', 'audio/webm');
+
+    const child = spawn('python', args);
+
+    child.stdout.pipe(res);
+
+    // Cancel yt-dlp process on client disconnect to avoid waste of bandwidth/cpu
+    req.on('close', () => {
+      if (!child.killed) {
+        child.kill();
       }
     });
 
-    if (!response.ok && response.status !== 206) {
-      console.error(`[Streaming Proxy Error] [${correlationId}] Proxy request to Google Video failed with status ${response.status}`);
-      return res.status(response.status || 500).send('Error streaming from YouTube source');
-    }
-
-    // Set appropriate proxy headers
-    res.status(response.status);
-    
-    // Forward response headers
-    for (const [key, value] of response.headers.entries()) {
-      const lowerKey = key.toLowerCase();
-      if (['content-type', 'content-range', 'content-length', 'accept-ranges'].includes(lowerKey)) {
-        res.setHeader(key, value);
+    child.stderr.on('data', (data) => {
+      if (process.env.DEBUG_YTDLP === 'true') {
+        console.log(`[yt-dlp stream] [${correlationId}] ${data.toString()}`);
       }
-    }
-    
-    // Default Content-Type if missing
-    if (!res.getHeader('Content-Type')) {
-      res.setHeader('Content-Type', 'audio/webm');
-    }
+    });
 
-    // Convert Web ReadableStream to Node.js Readable stream and pipe to express response
-    const nodeStream = Readable.fromWeb(response.body);
-    nodeStream.pipe(res);
-
-    // Cancel fetch stream on client disconnect to avoid waste of bandwidth
-    req.on('close', () => {
-      nodeStream.destroy();
+    child.on('error', (error) => {
+      console.error(`[Streaming Error] [${correlationId}] for video ${videoId}:`, error.message);
+      if (!res.headersSent) {
+        res.status(500).send('Failed to fetch media stream from source');
+      }
     });
 
     // Start background download to cache this track for subsequent plays
     downloadToCache(videoId, correlationId);
 
   } catch (error) {
-    console.error(`[Streaming Proxy Error] [${correlationId}] for video ${videoId}:`, error.message);
+    console.error(`[Streaming Error] [${correlationId}] for video ${videoId}:`, error.message);
     if (!res.headersSent) {
       res.status(500).send('Failed to fetch media stream from source');
     }
@@ -623,35 +546,27 @@ async function downloadAudio(videoId, res, correlationId) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const outputPath = path.join(cacheDir, '%(id)s - %(title)s.webm');
   
-  const runDownloadWrapper = async (useCookies) => {
-    const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, youtubeUrl], useCookies);
+  const args = prepareYtDlpArgs(['-f', 'bestaudio', '-o', outputPath, '--no-playlist', youtubeUrl]);
+
+  try {
     await runYtDlp(args, {
-      action: `downloadAudio${useCookies ? 'WithCookies' : 'WithoutCookies'}`,
+      action: 'downloadAudio',
       correlationId,
       videoId
     });
-  };
-
-  runDownloadWrapper(true)
-    .catch((err) => {
-      console.warn(`[Download] [${correlationId || 'N/A'}] Failed with cookies, retrying without:`, err.message);
-      return runDownloadWrapper(false);
-    })
-    .then(async () => {
-      const newCachedPath = await findCachedFile(cacheDir, videoId);
-      if (newCachedPath) {
-        console.log(`[Download Success] [${correlationId || 'N/A'}] Saved to ${newCachedPath}`);
-        triggerDownload(newCachedPath, path.basename(newCachedPath));
-      } else {
-        throw new Error('Downloaded file not found in cache');
-      }
-    })
-    .catch((err) => {
-      console.error(`[Download Error] [${correlationId || 'N/A'}] Failed completely:`, err.message);
-      if (!res.headersSent) {
-        res.status(500).send('Failed to download audio track');
-      }
-    });
+    const newCachedPath = await findCachedFile(cacheDir, videoId);
+    if (newCachedPath) {
+      console.log(`[Download Success] [${correlationId || 'N/A'}] Saved to ${newCachedPath}`);
+      triggerDownload(newCachedPath, path.basename(newCachedPath));
+    } else {
+      throw new Error('Downloaded file not found in cache');
+    }
+  } catch (err) {
+    console.error(`[Download Error] [${correlationId || 'N/A'}] Failed:`, err.message);
+    if (!res.headersSent) {
+      res.status(500).send('Failed to download audio track');
+    }
+  }
 }
 
 module.exports = {
