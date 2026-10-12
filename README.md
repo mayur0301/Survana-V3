@@ -1,7 +1,7 @@
 # 🎵 Survana V3 — The Ultimate Self-Hosted Music Sanctuary
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mayur0301/Survana-V3/main/frontend/public/vite.svg" width="96" height="96" alt="Survana V3 Logo" />
+  <img src="./frontend/src/assets/Logo/Big%20Logo.png" width="220" alt="Survana V3 Logo" />
 </p>
 
 <p align="center">
